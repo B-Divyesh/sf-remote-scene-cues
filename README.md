@@ -49,7 +49,7 @@ Configuration is environment-only:
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP listen port |
 | `DATABASE_URL` | `sqlite://scene-cues.db?mode=rwc` | SQLite file |
-| `PUBLIC_URL` | `http://localhost:8080` | Origin placed in private join links |
+| `PUBLIC_URL` | `https://remote-scene-cues.sociobot.in` | Origin placed in private join links; override for local development |
 | `STATIC_DIR` | `dist` | Built frontend directory |
 | `RUST_LOG` | library default | Structured JSON log filter |
 
@@ -95,10 +95,12 @@ stored in browser session storage. Server rooms and receipts expire after eight
 hours and can be deleted immediately by the host. See `/privacy` and `/terms`
 in the app.
 
-For deployment, mount writable storage at `/data`, set `DATABASE_URL` and
-`PUBLIC_URL`, and run the included container. TLS and persistent volume policy
-belong to the factory deployment layer; this repository does not modify infra,
-DNS, or billing registration.
+For deployment, mount writable storage at `/data` and run exactly one replica,
+because SQLite is a single-instance store. The image needs only `PORT`; it
+defaults private join links to the canonical production HTTPS origin. Override
+`DATABASE_URL` and `PUBLIC_URL` for local or non-production environments. TLS,
+persistent volume, and replica policy belong to the factory deployment layer;
+horizontal scaling requires a shared transactional database and event bus.
 
 The generated hero source, prompt metadata, and optimized variants live under
 `assets/src/` and `frontend/public/assets/`. Visual rationale and provenance are

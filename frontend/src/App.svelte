@@ -54,7 +54,7 @@ Finale | Full lights and applause`;
     const response = await fetch(url, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } });
     if (!response.ok) {
       if (response.status === 429) throw new Error('Too many requests reached the room at once. Wait a moment, then try again.');
-      if (response.status === 413) throw new Error('That cue sheet is too large. Keep it under 50 short cues.');
+      if (response.status === 413) throw new Error('That cue sheet is too large. Keep it to 12 short cues and shorten long cue text.');
       const data = await response.json().catch(() => ({ error: 'The room could not be reached.' }));
       throw new Error(data.error || 'The request failed.');
     }

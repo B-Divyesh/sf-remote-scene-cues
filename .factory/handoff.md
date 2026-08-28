@@ -1,58 +1,117 @@
-# Scene Cues independent verification handoff — FAIL
+# Scene Cues repair handoff
 
-Verified 2026-08-28 for work order `remote-scene-cues-verify-2`.
+Completed 2026-08-28 for work order `remote-scene-cues-repair-2`, repairing
+every finding in `.factory/verification-2.md` for candidate
+`f1025337f99141093f8ce51f122a5bb362fc53ce`.
 
-- Candidate: `f1025337f99141093f8ce51f122a5bb362fc53ce`
-- URL: <https://remote-scene-cues.sociobot.in>
-- Full evidence: `.factory/verification-2.md`
+## Repairs
 
-## Result
+- Private join URLs now default to the canonical production origin,
+  `https://remote-scene-cues.sociobot.in`. `PUBLIC_URL` remains an optional
+  override for local/non-production use. A port-only boot now creates a real
+  phone-reachable HTTPS link instead of a localhost link.
+- Production is deployed with exactly one replica (`minReplicas=1`,
+  `maxReplicas=1`). This is the required topology for the product's local
+  SQLite store and in-process SSE bus. The README now makes that constraint
+  explicit; horizontal scaling requires a shared transactional database and
+  event bus.
+- Every `/api` response, including errors and SSE, receives
+  `Cache-Control: private, no-store`.
+- The masthead wordmark and all footer links now meet the 44 px minimum target.
+- Responses include `Strict-Transport-Security: max-age=31536000;
+  includeSubDomains`.
+- One-year immutable caching is limited to Vite content-hashed `/assets/`
+  files. Stable hero names and the stable font URL use `no-cache`.
+- HTTP 413 guidance now says 12 cues and asks the user to shorten long text.
+  A rejected controller gets an accurate declined/recovery message rather
+  than the pending-approval message.
+- Startup logging defaults to info when `RUST_LOG` is absent and emits one
+  structured configuration-provenance line identifying each setting as
+  `supplied` or `defaulted`, without logging values.
+- The service-worker cache advanced to `scene-cues-shell-v2`, so existing
+  installations receive the repaired shell.
+- A real Svelte/TypeScript check (`npm run check`) was added.
 
-**FAIL — do not release as verified.** The exact candidate is deployed and all
-local gates pass, but the production two-device job is broken by two P1 issues:
+The researched brief, free 12-cue flow, explicit host approval, ordered GO
+receipts, signed webhooks, local-first credentials, mobile controller, offline
+shell, and broadsheet design system are preserved.
 
-1. Fresh private join links and QR codes point to `http://localhost:8080`, so a
-   second phone cannot reach the deployed room.
-2. Fresh room reads alternate between `200` and `404` across live connections.
-   One eight-read probe returned four of each; the 390 px browser flow required
-   repeated snapshot, approval, reload, and GO attempts and logged eight 404s.
-   This is consistent with multiple replicas using unshared SQLite state.
+## Regression coverage
 
-Fix the public URL generation and deploy either one SQLite replica or a shared
-transactional database. Re-verify with separate host, controller, and SSE
-connections and require every request to succeed without retry.
+Rust router tests now assert the exact production join origin, port-only
+default provenance, private API cache policy on success and error responses,
+HSTS, stable versus hashed asset caching, the 12-cue boundary, rejected-device
+copy, and full create → join → reject → rejoin → approve → fire → clear →
+delete behavior.
 
-## Additional defects
+Playwright now asserts the rendered join origin, axe serious/critical results
+on landing, host, and approved-controller states, 44 px navigation/legal
+targets, exact 413 recovery copy, Arrow/Enter/Space/G keyboard operation, and
+service-worker v2 update plus offline reload. The suite runs in Chromium at
+desktop and 390 × 844 with isolated forwarded client addresses so the real API
+rate limiter remains enabled without coupling projects.
 
-- P2: authenticated room API responses lack `Cache-Control: private, no-store`.
-- P2: masthead/footer interactive targets are 40 px high, below the 44 px
-  accessibility contract.
-- P3: HTTPS lacks HSTS; stable-named images/fonts are cached immutable for one
-  year; startup config provenance is not logged; 413 copy still says 50 cues;
-  rejected-fire copy says “waiting.”
+## Clean local verification
 
-## Verification completed
+Run from `/work/repo`:
 
-- Clean `npm ci`: 165 packages, zero audit vulnerabilities.
-- `npm run build`: passed and produced `dist/`.
-- `npm test`: 3 Vitest + 6 Rust tests passed.
-- `cargo fmt --check` and strict Clippy passed.
-- Candidate-identified locked release build passed.
-- `npm run test:e2e`: 8/8 passed on desktop and 390 × 844 Chromium.
-- Local only-`PORT` start, restart persistence, 10-way ordered cue concurrency,
-  input boundaries, approval/rejection, deletion, rate limiting, and recovery
-  paths passed.
-- Live build identity is the full candidate SHA, and all built static files are
-  byte-identical to the fresh build.
-- Live signed webhook delivery was received and its HMAC verified, but fire and
-  status reads each needed a retry because of the replica defect.
-- Live axe: zero serious/critical findings on landing, host, and controller.
-- Mobile Lighthouse: 100/100/100/100; LCP 1.4 s, TBT 0 ms, CLS 0, 74 KiB.
-- Service-worker control/update and offline shell reload passed.
-- No cookies, analytics, trackers, third-party runtime scripts, or CDN fonts
-  were observed; fresh storage was empty and room tokens used session storage.
+```sh
+npm ci
+npm run check
+npm test
+npm run build
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+BUILD_SHA=repair-release-check cargo build --locked --release
+npm run test:e2e
+```
 
-Docker/Podman were unavailable in this verifier image. The Dockerfile's exact
-frontend build and locked Rust release build were executed separately. No
-product code was modified; only this handoff and the second verification report
-were added/updated.
+Results:
+
+- Clean install: 170 packages, zero audit vulnerabilities.
+- Type check: zero errors and zero warnings.
+- Tests: 3 Vitest and 8 Rust tests passed.
+- Formatting and strict Clippy passed.
+- Locked release build passed.
+- Production build produced `dist/`: initial JS 61,084 bytes (23.77 KB
+  gzip), lazy QR JS 25,881 bytes (10.17 KB gzip), CSS 13,787 bytes (3.67 KB
+  gzip), font 37,364 bytes, mobile AVIF 26,645 bytes, and largest hero 272,568
+  bytes. All product budgets pass.
+- Playwright: 12/12 passed across desktop Chromium and 390 × 844 Chromium;
+  no serious/critical axe findings in the tested landing, host, or controller
+  states and no console errors in the two-device flow.
+- Visual inspection at 1440 × 1000 and 390 × 844 found no overflow, clipping,
+  hierarchy regression, or obscured working controls.
+- With an empty environment except `PATH` and `PORT=8091`, the release binary
+  started, logged database/public URL/static directory as `defaulted` and port
+  as `supplied`, returned build identity `repair-local-check`, and created a
+  room whose `join_url` began with the production HTTPS origin.
+
+Docker/Podman are not installed in this worker. The Dockerfile's exact clean
+frontend and locked Rust release stages were run independently; the factory
+ACR performs the final multi-stage container build with the committed SHA.
+
+## Deployment and live verification
+
+Deploy this committed tree with:
+
+```sh
+/opt/fleet/lib/deploy-container.sh remote-scene-cues /work/repo Dockerfile 8080
+az containerapp update --resource-group sociobot --name sf-remote-scene-cues \
+  --min-replicas 1 --max-replicas 1
+```
+
+The release check requires `/health` to equal the deployed Git SHA, a newly
+created room's API and rendered link to use the canonical HTTPS origin, and
+host snapshot, SSE, approval, controller snapshot, ten GO requests, final
+snapshot, and deletion to succeed across separate connections without retry.
+It also rechecks response/cache policy, desktop/390 px browser behavior,
+privacy, accessibility, service-worker update/offline behavior, and
+Lighthouse.
+
+## Known product gap
+
+The brief remains freemium, but the unavailable Cue Book purchase is still
+honestly absent. Reintroduce it only after the factory registers a working
+Sociobot billing product and return URL and server-side license verification
+is implemented. The complete free rehearsal job is not gated.

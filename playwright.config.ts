@@ -11,8 +11,8 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   projects: [
-    { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'mobile-chromium', use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 390, height: 844 } } }
+    { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'], extraHTTPHeaders: { 'x-forwarded-for': '192.0.2.10' } } },
+    { name: 'mobile-chromium', use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 390, height: 844 }, extraHTTPHeaders: { 'x-forwarded-for': '192.0.2.11' } } }
   ],
   webServer: {
     command: 'npm run build && DATABASE_URL="sqlite:///tmp/scene-cues-e2e.db?mode=rwc" PUBLIC_URL="http://127.0.0.1:8080" cargo run',

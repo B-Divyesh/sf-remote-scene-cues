@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --config vite.config.ts",
     "build": "vite build --config vite.config.ts",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
     "preview": "vite preview --config vite.config.ts",
     "test:ui": "vitest run --config vitest.config.ts",
     "test": "npm run test:ui && cargo test",
@@ -20,6 +21,7 @@
     "@types/qrcode": "1.5.5",
     "jsdom": "26.1.0",
     "svelte": "5.56.10",
+    "svelte-check": "4.3.2",
     "typescript": "5.9.2",
     "vite": "7.3.6",
     "vitest": "3.2.7"

@@ -42,6 +42,7 @@ use uuid::Uuid;
 
 type HmacSha256 = Hmac<Sha256>;
 const FREE_CUE_LIMIT: usize = 12;
+const DEFAULT_PUBLIC_URL: &str = "https://remote-scene-cues.sociobot.in";
 
 #[derive(Clone)]
 struct AppState {
@@ -59,6 +60,8 @@ enum ApiError {
     NotFound,
     #[error("This controller is still waiting for host approval")]
     Pending,
+    #[error("This controller was declined by the host; request a fresh private link to try again")]
+    Rejected,
     #[error("This room has expired")]
     Expired,
     #[error("Internal server error")]
@@ -70,7 +73,7 @@ impl IntoResponse for ApiError {
         let status = match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::NotFound => StatusCode::NOT_FOUND,
-            Self::Pending => StatusCode::FORBIDDEN,
+            Self::Pending | Self::Rejected => StatusCode::FORBIDDEN,
             Self::Expired => StatusCode::GONE,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -526,7 +529,11 @@ async fn fire_at(
     let room = room_by_code(&state.db, &code).await?;
     let (role, status) = role_for(&state.db, &room, &token).await?;
     if status != "approved" {
-        return Err(ApiError::Pending);
+        return Err(if status == "rejected" {
+            ApiError::Rejected
+        } else {
+            ApiError::Pending
+        });
     }
     let actor = if role == "host" {
         "Host".to_string()
@@ -725,19 +732,43 @@ async fn security_headers(request: Request, next: Next) -> Response {
     headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
     headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
     headers.insert(
+        "strict-transport-security",
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
+    headers.insert(
         "permissions-policy",
         HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
     );
     headers.insert("content-security-policy", HeaderValue::from_static("default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"));
-    if path.starts_with("/assets/") || path.starts_with("/fonts/") {
+    if path == "/api" || path.starts_with("/api/") {
+        headers.insert(
+            "cache-control",
+            HeaderValue::from_static("private, no-store"),
+        );
+    } else if is_content_hashed_asset(&path) {
         headers.insert(
             "cache-control",
             HeaderValue::from_static("public, max-age=31536000, immutable"),
         );
-    } else if !path.starts_with("/api/") {
+    } else {
         headers.insert("cache-control", HeaderValue::from_static("no-cache"));
     }
     response
+}
+
+fn is_content_hashed_asset(path: &str) -> bool {
+    if !path.starts_with("/assets/") {
+        return false;
+    }
+    let Some(file_name) = path.rsplit('/').next() else {
+        return false;
+    };
+    let Some(stem) = file_name.rsplit_once('.').map(|(stem, _)| stem) else {
+        return false;
+    };
+    stem.rsplit('-').next().is_some_and(|hash| {
+        hash.len() >= 8 && hash.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
 }
 
 fn app(state: AppState, static_dir: PathBuf) -> Router {
@@ -791,10 +822,23 @@ fn app(state: AppState, static_dir: PathBuf) -> Router {
 async fn main() {
     tracing_subscriber::fmt()
         .json()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .init();
-    let database_url =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://scene-cues.db?mode=rwc".into());
+    let (database_url, database_source) =
+        env_or_default("DATABASE_URL", "sqlite://scene-cues.db?mode=rwc");
+    let (public_url, public_url_source) = env_or_default("PUBLIC_URL", DEFAULT_PUBLIC_URL);
+    let (static_dir, static_dir_source) = env_or_default("STATIC_DIR", "dist");
+    let (port_value, port_source) = env_or_default("PORT", "8080");
+    tracing::info!(
+        database_url = database_source,
+        public_url = public_url_source,
+        static_dir = static_dir_source,
+        port = port_source,
+        "configuration provenance (supplied/defaulted; values omitted)"
+    );
     let options = SqliteConnectOptions::from_str(&database_url)
         .expect("valid DATABASE_URL")
         .create_if_missing(true)
@@ -809,28 +853,28 @@ async fn main() {
         db: db.clone(),
         channels: Default::default(),
         cue_lock: Default::default(),
-        public_url: std::env::var("PUBLIC_URL").unwrap_or_else(|_| "http://localhost:8080".into()),
+        public_url,
     };
     tokio::spawn(async move { cleanup_expired(&db).await });
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(8080);
+    let port: u16 = port_value.parse().unwrap_or(8080);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
         .expect("bind port");
     tracing::info!(port, "Scene Cues listening");
     axum::serve(
         listener,
-        app(
-            state,
-            PathBuf::from(std::env::var("STATIC_DIR").unwrap_or_else(|_| "dist".into())),
-        )
-        .into_make_service_with_connect_info::<SocketAddr>(),
+        app(state, PathBuf::from(static_dir)).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown())
     .await
     .expect("serve");
+}
+
+fn env_or_default(name: &str, default: &str) -> (String, &'static str) {
+    match std::env::var(name) {
+        Ok(value) if !value.trim().is_empty() => (value, "supplied"),
+        _ => (default.to_string(), "defaulted"),
+    }
 }
 
 async fn shutdown() {
@@ -868,7 +912,7 @@ mod unit_tests {
                 db,
                 channels: Default::default(),
                 cue_lock: Default::default(),
-                public_url: "https://scene.test".into(),
+                public_url: DEFAULT_PUBLIC_URL.into(),
             },
             PathBuf::from("/tmp/scene-cues-missing-static"),
         )
@@ -909,6 +953,19 @@ mod unit_tests {
         assert!(!code.contains('I') && !code.contains('O'));
     }
 
+    #[test]
+    fn production_origin_and_default_config_are_explicit() {
+        let public_url = Url::parse(DEFAULT_PUBLIC_URL).unwrap();
+        assert_eq!(public_url.scheme(), "https");
+        assert_eq!(public_url.host_str(), Some("remote-scene-cues.sociobot.in"));
+        let (value, source) = env_or_default(
+            "SCENE_CUES_TEST_VARIABLE_THAT_MUST_NOT_EXIST",
+            DEFAULT_PUBLIC_URL,
+        );
+        assert_eq!(value, DEFAULT_PUBLIC_URL);
+        assert_eq!(source, "defaulted");
+    }
+
     #[tokio::test]
     async fn health_has_an_explicit_build_identity() {
         let response = test_app()
@@ -937,6 +994,56 @@ mod unit_tests {
             .unwrap_or_default();
         assert!(policy.contains("connect-src 'self'"));
         assert!(!policy.contains("sociobot.in"));
+    }
+
+    #[tokio::test]
+    async fn response_policy_protects_private_api_and_only_immutably_caches_hashed_assets() {
+        let router = test_app().await;
+        let api_error = router
+            .clone()
+            .oneshot(request("GET", "/api/rooms/NOPE?token=nope", None))
+            .await
+            .unwrap();
+        assert_eq!(
+            api_error.headers().get("cache-control").unwrap(),
+            "private, no-store"
+        );
+        assert_eq!(
+            api_error
+                .headers()
+                .get("strict-transport-security")
+                .unwrap(),
+            "max-age=31536000; includeSubDomains"
+        );
+
+        let stable_asset = router
+            .clone()
+            .oneshot(request("GET", "/assets/scene-cues-hero-mobile.avif", None))
+            .await
+            .unwrap();
+        assert_eq!(
+            stable_asset.headers().get("cache-control").unwrap(),
+            "no-cache"
+        );
+
+        let stable_font = router
+            .clone()
+            .oneshot(request("GET", "/fonts/league-gothic.ttf", None))
+            .await
+            .unwrap();
+        assert_eq!(
+            stable_font.headers().get("cache-control").unwrap(),
+            "no-cache"
+        );
+
+        let hashed_asset = router
+            .oneshot(request("GET", "/assets/index-CmWbGLMB.js", None))
+            .await
+            .unwrap();
+        assert_eq!(
+            hashed_asset.headers().get("cache-control").unwrap(),
+            "public, max-age=31536000, immutable"
+        );
     }
 
     #[tokio::test]
@@ -986,10 +1093,15 @@ mod unit_tests {
             .await
             .unwrap();
         assert_eq!(created.status(), StatusCode::CREATED);
+        assert_eq!(
+            created.headers().get("cache-control").unwrap(),
+            "private, no-store"
+        );
         let created = json_body(created).await;
         let code = created["code"].as_str().unwrap();
         let host_token = created["host_token"].as_str().unwrap();
         let join_url = Url::parse(created["join_url"].as_str().unwrap()).unwrap();
+        assert_eq!(join_url.origin().ascii_serialization(), DEFAULT_PUBLIC_URL);
         let secret = join_url
             .query_pairs()
             .find(|(key, _)| key == "secret")
@@ -1002,7 +1114,7 @@ mod unit_tests {
             .oneshot(request(
                 "POST",
                 &format!("/api/rooms/{code}/join"),
-                Some(serde_json::json!({"name":"Booth phone", "secret":secret})),
+                Some(serde_json::json!({"name":"Booth phone", "secret":secret.clone()})),
             ))
             .await
             .unwrap();
@@ -1034,6 +1146,65 @@ mod unit_tests {
             .unwrap();
         let host_view = json_body(host_view).await;
         let controller_id = host_view["controllers"][0]["id"].as_str().unwrap();
+
+        let rejected = router
+            .clone()
+            .oneshot(request(
+                "POST",
+                &format!("/api/rooms/{code}/controllers/{controller_id}/reject?token={host_token}"),
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::NO_CONTENT);
+        let rejected_fire = router
+            .clone()
+            .oneshot(request(
+                "POST",
+                &format!("/api/rooms/{code}/fire?token={controller_token}"),
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rejected_fire.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            json_body(rejected_fire).await["error"],
+            "This controller was declined by the host; request a fresh private link to try again"
+        );
+
+        let rejoined = router
+            .clone()
+            .oneshot(request(
+                "POST",
+                &format!("/api/rooms/{code}/join"),
+                Some(serde_json::json!({"name":"Replacement phone", "secret":secret})),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rejoined.status(), StatusCode::CREATED);
+        let controller_token = json_body(rejoined).await["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let host_view = router
+            .clone()
+            .oneshot(request(
+                "GET",
+                &format!("/api/rooms/{code}?token={host_token}"),
+                None,
+            ))
+            .await
+            .unwrap();
+        let host_view = json_body(host_view).await;
+        let controller_id = host_view["controllers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|controller| controller["name"] == "Replacement phone")
+            .unwrap()["id"]
+            .as_str()
+            .unwrap();
         let approved = router
             .clone()
             .oneshot(request(
