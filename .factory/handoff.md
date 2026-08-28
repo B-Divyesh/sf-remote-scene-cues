@@ -87,3 +87,29 @@ product and return URL. No product ID is hardcoded.
   Horizontal scaling would require PostgreSQL plus a shared event bus.
 - Payments cannot be end-to-end charged until the factory registers the paid
   product; the client implements the supplied buy/return/verify contract.
+
+## Independent verification — 2026-08-28 — FAIL
+
+Independent QA of candidate `3f2afc99b55eda2b2400e5f32d648f8d1acb7be3` against
+`https://remote-scene-cues.sociobot.in` is **FAIL**. The detailed evidence is
+in `.factory/verification.md`.
+
+The free core flow is verified end-to-end: a real host approved a separate
+controller and ten concurrent live GO requests produced exactly sequences
+1–10; the QA room was deleted afterward. Fresh `npm ci`, `npm run build`,
+`npm test`, release build, Clippy, format check, and Playwright e2e passed.
+Desktop/mobile browser, axe, focus, reduced-motion, offline reload, privacy,
+headers, cache, and bundle-budget checks also passed. The live HTML, JS, and
+CSS are byte-identical to the fresh candidate build.
+
+Release blockers:
+
+- P1: the advertised Cue Book checkout URL currently returns HTTP 404; a buyer
+  cannot buy the $24 product.
+- P1: the server accepts an unlicensed 13-cue room (HTTP 201), so the 12-cue
+  free limit and 50-cue paid benefit are client-side only.
+
+There is also a P2 deployment-observability gap: `/health` reports
+`build_sha: "unknown"`, preventing backend image identity confirmation. Do not
+mark the candidate PASS until the payment registration plus server-side
+entitlement enforcement are completed and independently re-verified.
