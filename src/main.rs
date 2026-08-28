@@ -763,12 +763,20 @@ fn is_content_hashed_asset(path: &str) -> bool {
     let Some(file_name) = path.rsplit('/').next() else {
         return false;
     };
-    let Some(stem) = file_name.rsplit_once('.').map(|(stem, _)| stem) else {
+    let Some((stem, extension)) = file_name.rsplit_once('.') else {
         return false;
     };
-    stem.rsplit('-').next().is_some_and(|hash| {
-        hash.len() >= 8 && hash.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-    })
+    if extension != "js" && extension != "css" {
+        return false;
+    }
+    stem.split_once('-')
+        .map(|(_, hash)| hash)
+        .is_some_and(|hash| {
+            hash.len() >= 8
+                && hash
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
 }
 
 fn app(state: AppState, static_dir: PathBuf) -> Router {
@@ -1037,7 +1045,7 @@ mod unit_tests {
         );
 
         let hashed_asset = router
-            .oneshot(request("GET", "/assets/index-CmWbGLMB.js", None))
+            .oneshot(request("GET", "/assets/index-wt-Sg26m.js", None))
             .await
             .unwrap();
         assert_eq!(
