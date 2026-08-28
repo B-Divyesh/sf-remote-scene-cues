@@ -101,13 +101,45 @@ az containerapp update --resource-group sociobot --name sf-remote-scene-cues \
   --min-replicas 1 --max-replicas 1
 ```
 
-The release check requires `/health` to equal the deployed Git SHA, a newly
-created room's API and rendered link to use the canonical HTTPS origin, and
-host snapshot, SSE, approval, controller snapshot, ten GO requests, final
-snapshot, and deletion to succeed across separate connections without retry.
-It also rechecks response/cache policy, desktop/390 px browser behavior,
-privacy, accessibility, service-worker update/offline behavior, and
-Lighthouse.
+Live release evidence:
+
+- The Container App is in single-revision mode with `minReplicas=1` and
+  `maxReplicas=1`; its image tag matches the committed source. `/health`
+  returned the full SHA from `git rev-parse HEAD`.
+- A new room returned and rendered
+  `https://remote-scene-cues.sociobot.in` as its join origin. Eight sequential
+  authenticated reads over separate HTTP connections were all 200 (the failed
+  candidate alternated 404/200).
+- A separate SSE connection received the approval refresh. Host and controller
+  snapshots and approval succeeded without retry. Ten concurrent controller
+  GO requests were all 200 with unique sequences 1–10; the final snapshot had
+  `current_index=9` and 10 events. Deletion returned 204 on the first request.
+- A direct 13-cue request returned 400 with `Add between 1 and 12 cues`; a
+  70 KB body returned 413 and `private, no-store`; a rejected controller's
+  fire returned 403 with the new declined-device recovery copy.
+- HTTP redirects to HTTPS with 301. HTTPS sends HSTS. HTML and stable assets
+  use `no-cache`, hashed JS uses
+  `public, max-age=31536000, immutable`, and API success/error responses use
+  `private, no-store`. A hostile-origin preflight returned 405 with no CORS
+  allow headers.
+- The worker `verify-url.sh` returned HTTPS 200, a 634 ms browser load, zero
+  console errors, `lang=en`, one h1, a main landmark, and zero missing image
+  alt attributes or unlabeled buttons.
+- Live browser axe found zero serious/critical findings on host and controller.
+  The 390 px controller had no horizontal overflow and a 350 × 360 px GO
+  target. Runtime requests were same-origin only, local storage was empty, and
+  visual review of the desktop host and mobile controller found no clipping or
+  hierarchy regressions.
+- The service worker controlled the page, exposed only
+  `scene-cues-shell-v2`, and rendered the landing h1 after an offline reload
+  with zero console errors.
+- Lighthouse 12.8.2 mobile: performance 100, accessibility 100, best practices
+  100, SEO 100; FCP 1.245 s, LCP 1.314 s, TBT 57.5 ms, CLS 0, 75,948 bytes.
+- Load smoke: 500 `/health` requests at concurrency 100 returned 500 HTTP 200s
+  in 1.173 seconds (426.3 requests/second).
+- Live container logs contain the required provenance event: database,
+  static directory, and port are `supplied`; public URL is `defaulted`. No
+  configuration values or secrets are logged.
 
 ## Known product gap
 
