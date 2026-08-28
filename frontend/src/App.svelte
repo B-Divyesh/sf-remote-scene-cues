@@ -35,26 +35,13 @@ Finale | Full lights and applause`;
   let webhookEnabled = false;
   let webhookUrl = '';
   let webhookSecret = '';
-  let savedSheetName = '';
-  let licenseInput = '';
-  let paid = false;
-  let licenseNotice = '';
   let eventSource: EventSource | null = null;
 
-  const billingBase = import.meta.env.VITE_BILLING_BASE || 'https://api.sociobot.in';
-  const checkoutUrl = `${billingBase}/api/v1/products/remote-scene-cues/checkout`;
-
   onMount(() => {
-    const foundLicense = new URLSearchParams(location.search).get('license');
-    if (foundLicense) {
-      localStorage.setItem('sb_license:remote-scene-cues', foundLicense);
-      history.replaceState({}, '', location.pathname);
-    }
     if (joinSecret && roomToken) {
       history.replaceState({}, '', `/join/${code}`);
       joinSecret = '';
     }
-    checkLicense();
     const up = () => { online = true; notice = 'Back online — syncing the room.'; if (roomToken && code) loadRoom(); };
     const down = () => { online = false; };
     addEventListener('online', up); addEventListener('offline', down);
@@ -77,10 +64,10 @@ Finale | Full lights and applause`;
   async function createRoom() {
     error = ''; notice = '';
     const cues = parseCues(cuesText);
-    const max = paid ? 50 : 12;
+    const max = 12;
     if (!showName.trim()) { error = 'Give this rehearsal a name.'; return; }
     if (!cues.length) { error = 'Add at least one cue.'; return; }
-    if (cues.length > max) { error = `Your ${paid ? 'Cue Book' : 'free'} limit is ${max} cues. Shorten this sheet${paid ? '.' : ' or unlock Cue Book.'}`; return; }
+    if (cues.length > max) { error = `A room can hold up to ${max} cues. Shorten this sheet, then try again.`; return; }
     busy = true;
     try {
       const room = await api<{code:string;host_token:string;join_url:string}>('/api/rooms', { method: 'POST', body: JSON.stringify({ title: showName, cues, webhook_url: webhookEnabled ? webhookUrl : null, webhook_secret: webhookEnabled ? webhookSecret : null }) });
@@ -145,7 +132,17 @@ Finale | Full lights and applause`;
 
   function keyboardGo(event: KeyboardEvent) {
     const target = event.target as HTMLElement;
-    if (event.key.toLowerCase() === 'g' && !['INPUT','TEXTAREA','SELECT'].includes(target.tagName) && !busy) { event.preventDefault(); fire(); }
+    if (['INPUT','TEXTAREA','SELECT'].includes(target.tagName)) return;
+    if (event.key.toLowerCase() === 'g' && !busy) { event.preventDefault(); fire(); return; }
+    if (page !== 'host' || !snapshot || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    const cueButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.cue-list button:not(:disabled)'));
+    if (!cueButtons.length) return;
+    const current = cueButtons.indexOf(document.activeElement as HTMLButtonElement);
+    const direction = event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 1;
+    const fallback = Math.max(0, Math.min(cueButtons.length - 1, snapshot.current_index + direction));
+    const next = current < 0 ? fallback : (current + direction + cueButtons.length) % cueButtons.length;
+    event.preventDefault();
+    cueButtons[next].focus();
   }
 
   function copyJoin() {
@@ -169,44 +166,6 @@ Finale | Full lights and applause`;
     if (confirm('Clear this room’s cue receipt log? This cannot be undone.')) await roomAction('/logs', 'DELETE');
   }
 
-  function saveCueBook() {
-    if (!paid) { document.getElementById('upgrade')?.scrollIntoView({ behavior: 'smooth' }); return; }
-    if (!savedSheetName.trim()) { error = 'Name the cue book before saving it.'; return; }
-    const books = JSON.parse(localStorage.getItem('scene-cues:cue-books') || '[]');
-    books.unshift({ name: savedSheetName.trim(), showName, cuesText });
-    localStorage.setItem('scene-cues:cue-books', JSON.stringify(books.slice(0, 20)));
-    notice = 'Cue book saved on this device.';
-  }
-
-  function restoreLicense() {
-    const token = licenseInput.trim();
-    if (!token) { licenseNotice = 'Paste the license token from your receipt.'; return; }
-    localStorage.setItem('sb_license:remote-scene-cues', token);
-    localStorage.removeItem('sb_license_check:remote-scene-cues');
-    licenseInput = '';
-    checkLicense(true);
-  }
-
-  async function checkLicense(force = false) {
-    const token = localStorage.getItem('sb_license:remote-scene-cues');
-    if (!token) return;
-    const cached = JSON.parse(localStorage.getItem('sb_license_check:remote-scene-cues') || 'null');
-    if (cached?.valid) paid = true;
-    if (!force && cached && Date.now() - cached.checkedAt < 86_400_000) return;
-    try {
-      const response = await fetch(`${billingBase}/api/v1/products/remote-scene-cues/verify?license=${encodeURIComponent(token)}`);
-      const verdict = await response.json();
-      localStorage.setItem('sb_license_check:remote-scene-cues', JSON.stringify({ valid: verdict.valid, checkedAt: Date.now() }));
-      paid = verdict.valid;
-      licenseNotice = verdict.valid ? 'Cue Book is unlocked on this device.' : 'This license is no longer active. You can continue with the free room.';
-    } catch { licenseNotice = paid ? 'Offline: using the last valid license check.' : 'Could not verify yet. The free room remains available.'; }
-  }
-
-  function loadSavedBook(index: number) {
-    const books = JSON.parse(localStorage.getItem('scene-cues:cue-books') || '[]');
-    if (books[index]) { showName = books[index].showName; cuesText = books[index].cuesText; notice = `Loaded “${books[index].name}”.`; }
-  }
-
 </script>
 
 <svelte:window onkeydown={keyboardGo} />
@@ -218,7 +177,6 @@ Finale | Full lights and applause`;
   <a class="wordmark" href="/" aria-label="Scene Cues home"><span aria-hidden="true">SC</span> Scene Cues</a>
   <nav aria-label="Primary">
     <a href="/#how">How it works</a>
-    <a href="/#upgrade">Cue Book</a>
   </nav>
 </header>
 
@@ -226,8 +184,8 @@ Finale | Full lights and applause`;
   <main id="main" class="legal">
     <p class="kicker">Legal / Privacy</p><h1>Short rooms.<br/>Short memory.</h1>
     <p>Scene Cues stores room names, cue text, controller names, webhook settings, and cue receipts on our server only while a room is live. Rooms and their logs expire after eight hours, or immediately when the host ends the room. We do not use analytics, advertising cookies, or third-party trackers.</p>
-    <h2>On your device</h2><p>Room access tokens live in session storage and disappear when the browser session closes. A Cue Book license and saved cue books use local storage so they can survive a restart. You can remove them with your browser’s site-data controls.</p>
-    <h2>Webhooks and checkout</h2><p>If a host configures a webhook, cue payloads are sent only to that HTTPS address and signed with the supplied secret. Private and local-network addresses are rejected. Purchases and refunds are handled by Sociobot/Dodo as merchant of record; their privacy terms apply at checkout.</p>
+    <h2>On your device</h2><p>Room access tokens live in session storage and disappear when the browser session closes. Scene Cues does not store room data in local storage. You can remove any browser site data with your browser’s site-data controls.</p>
+    <h2>Webhooks</h2><p>If a host configures a webhook, cue payloads are sent only to that HTTPS address and signed with the supplied secret. Private and local-network addresses are rejected.</p>
     <p>Questions: <a href="mailto:privacy@sociobot.in">privacy@sociobot.in</a></p>
   </main>
 {:else if page === 'terms'}
@@ -235,7 +193,6 @@ Finale | Full lights and applause`;
     <p class="kicker">Legal / Terms</p><h1>A rehearsal aid,<br/>not a safety system.</h1>
     <p>Scene Cues is provided “as is” for creative rehearsals and performances. Do not use it for pyrotechnics, life-safety systems, access control, or any action where a late, duplicated, or unavailable network message could cause harm.</p>
     <h2>Rooms and acceptable use</h2><p>You are responsible for cue content, controller approvals, webhook destinations, and keeping room links private. Do not use the service to attack systems or send unlawful material. We may limit abusive traffic.</p>
-    <h2>Cue Book purchase</h2><p>Cue Book is a $24 one-time license for the listed unlocks, not a promise of permanent hosted service. Sociobot/Dodo is the merchant of record and handles checkout and refunds. A refund revokes the license automatically. Core export, accessibility, and room safety remain available free.</p>
   </main>
 {:else if page === 'join'}
   <main id="main" class="controller-main">
@@ -342,10 +299,9 @@ Finale | Full lights and applause`;
       <div class="create-intro"><p class="kicker">Make the call sheet</p><h2>Room setup</h2><p>No account. Nothing to install. Room data and receipts delete automatically after eight hours.</p></div>
       <form class="setup-form" onsubmit={(e) => { e.preventDefault(); createRoom(); }}>
         <label for="show-name">Rehearsal name</label><input id="show-name" bind:value={showName} maxlength="80" required />
-        <div class="label-row"><label for="cues">Scenes and cues</label><span>{parseCues(cuesText).length} / {paid ? 50 : 12}</span></div>
+        <div class="label-row"><label for="cues">Scenes and cues</label><span>{parseCues(cuesText).length} / 12</span></div>
         <textarea id="cues" bind:value={cuesText} rows="11" spellcheck="true" aria-describedby="cue-help"></textarea><p id="cue-help" class="field-help">One per line: <strong>Scene | Cue name</strong></p>
         <details><summary>Signed webhook <span>optional</span></summary><div class="details-body"><label class="check-row"><input type="checkbox" bind:checked={webhookEnabled}/> Send every cue to an existing app</label>{#if webhookEnabled}<label for="webhook-url">Public HTTPS endpoint</label><input id="webhook-url" type="url" bind:value={webhookUrl} placeholder="https://example.com/cues" required/><label for="webhook-secret">Signing secret</label><input id="webhook-secret" bind:value={webhookSecret} minlength="12" autocomplete="new-password" required/><p class="field-help">Sent as HMAC-SHA256 in <code>X-Scene-Cues-Signature</code>. Local network targets are blocked.</p>{/if}</div></details>
-        {#if paid}<div class="save-book"><label for="book-name">Cue Book name</label><div><input id="book-name" bind:value={savedSheetName} placeholder="Touring show v2"/><button type="button" onclick={saveCueBook}>Save locally</button></div>{#if JSON.parse(localStorage.getItem('scene-cues:cue-books') || '[]').length}<label for="saved-books">Load a Cue Book</label><select id="saved-books" onchange={(e) => loadSavedBook(Number(e.currentTarget.value))}><option value="">Choose saved sheet</option>{#each JSON.parse(localStorage.getItem('scene-cues:cue-books') || '[]') as book, i}<option value={i}>{book.name}</option>{/each}</select>{/if}</div>{/if}
         <button class="go-create" disabled={busy}>{busy ? 'Opening room…' : 'Create room + private QR'}</button>
         {#if error}<p class="form-error" role="alert">{error}</p>{/if}{#if notice}<p class="form-notice" role="status">{notice}</p>{/if}
       </form>
@@ -353,10 +309,6 @@ Finale | Full lights and applause`;
 
     <section id="how" class="how-section"><p class="kicker">The running order</p><h2>From call sheet to GO<br/>in under a minute.</h2><ol><li><span>1</span><div><strong>Write the sequence</strong><p>Name the scenes and cues in their real running order.</p></div></li><li><span>2</span><div><strong>Approve the booth</strong><p>Controllers scan the private QR; nothing works until the host says yes.</p></div></li><li><span>3</span><div><strong>Call GO</strong><p>Every press advances once on the server, logs a receipt, and optionally posts a signed webhook.</p></div></li></ol></section>
 
-    <section id="upgrade" class="upgrade-section">
-      <div><p class="kicker">Cue Book / One-time license</p><h2>Keep the show.<br/>Lose the setup.</h2><p>Free rooms handle 12 ordered cues and remain genuinely useful. Cue Book unlocks up to 50 cues, 20 locally saved show sheets, and quick reuse on this device.</p><p class="price"><strong>$24</strong> once</p><a class="red-button" href={checkoutUrl}>Buy Cue Book</a></div>
-      <div class="license-box"><h3>Already bought it?</h3><p>Paste the license token from your receipt to restore this device.</p><label for="license">License token</label><input id="license" bind:value={licenseInput} autocomplete="off"/><button onclick={restoreLicense}>Verify and restore</button>{#if licenseNotice}<p class="field-help" aria-live="polite">{licenseNotice}</p>{/if}<p class="micro">Sociobot/Dodo is the merchant of record. Refunds are handled there and revoke the license automatically.</p></div>
-    </section>
   </main>
 {/if}
 

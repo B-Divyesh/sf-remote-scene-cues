@@ -11,14 +11,13 @@ Live product: <https://remote-scene-cues.sociobot.in>
 
 ## What v1 includes
 
-- Ordered scene/cue setup (12 cues free, 50 with a Cue Book license).
+- Ordered scene/cue setup (up to 12 cues per room).
 - Short-lived private join links and explicit controller approval.
 - Server-Sent Events for live state and receipt synchronization.
 - Deterministic, serialized cue advancement and host-only cue selection.
 - Optional HTTPS webhooks signed with HMAC-SHA256.
 - CSV receipt export, manual log deletion, and automatic eight-hour expiry.
 - Offline/error/empty states, keyboard `G`, and a 390 px phone remote.
-- One-time Cue Book checkout and license restore through Sociobot billing.
 
 It intentionally does not stream video, perform matchmaking, replace game
 networking, or control safety-critical equipment.
@@ -53,7 +52,6 @@ Configuration is environment-only:
 | `PUBLIC_URL` | `http://localhost:8080` | Origin placed in private join links |
 | `STATIC_DIR` | `dist` | Built frontend directory |
 | `RUST_LOG` | library default | Structured JSON log filter |
-| `VITE_BILLING_BASE` | `https://api.sociobot.in` | Build-time billing API base; use the pilot API on staging |
 
 ## Test and verify
 
@@ -93,9 +91,9 @@ delivery is recorded but never changes cue order.
 ## Privacy and deployment
 
 There are no analytics or third-party runtime fonts/scripts. Access tokens are
-stored in browser session storage. Cue Book licenses and saved cue sheets stay
-in local storage. Server rooms and receipts expire after eight hours and can be
-deleted immediately by the host. See `/privacy` and `/terms` in the app.
+stored in browser session storage. Server rooms and receipts expire after eight
+hours and can be deleted immediately by the host. See `/privacy` and `/terms`
+in the app.
 
 For deployment, mount writable storage at `/data`, set `DATABASE_URL` and
 `PUBLIC_URL`, and run the included container. TLS and persistent volume policy

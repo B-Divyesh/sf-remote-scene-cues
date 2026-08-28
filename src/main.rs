@@ -41,6 +41,7 @@ use url::Url;
 use uuid::Uuid;
 
 type HmacSha256 = Hmac<Sha256>;
+const FREE_CUE_LIMIT: usize = 12;
 
 #[derive(Clone)]
 struct AppState {
@@ -239,6 +240,8 @@ async fn role_for(
 async fn health() -> Json<Health> {
     Json(Health {
         status: "ok",
+        // Docker supplies BUILD_SHA at compile time. `dev` keeps local builds
+        // runnable while remaining an explicit, non-ambiguous identity.
         build_sha: option_env!("BUILD_SHA").unwrap_or("dev").to_string(),
     })
 }
@@ -252,8 +255,10 @@ async fn create_room(
             "Show name must be 1–80 characters".into(),
         ));
     }
-    if input.cues.is_empty() || input.cues.len() > 50 {
-        return Err(ApiError::BadRequest("Add between 1 and 50 cues".into()));
+    if input.cues.is_empty() || input.cues.len() > FREE_CUE_LIMIT {
+        return Err(ApiError::BadRequest(format!(
+            "Add between 1 and {FREE_CUE_LIMIT} cues"
+        )));
     }
     for cue in &input.cues {
         if !valid_name(&cue.scene, 60) || !valid_name(&cue.name, 100) {
@@ -723,7 +728,7 @@ async fn security_headers(request: Request, next: Next) -> Response {
         "permissions-policy",
         HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
     );
-    headers.insert("content-security-policy", HeaderValue::from_static("default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://api.sociobot.in https://pilot-api.sociobot.in; base-uri 'none'; frame-ancestors 'none'; form-action 'self' https://api.sociobot.in https://pilot-api.sociobot.in"));
+    headers.insert("content-security-policy", HeaderValue::from_static("default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"));
     if path.starts_with("/assets/") || path.starts_with("/fonts/") {
         headers.insert(
             "cache-control",
@@ -902,6 +907,62 @@ mod unit_tests {
         let code = random_code();
         assert_eq!(code.len(), 6);
         assert!(!code.contains('I') && !code.contains('O'));
+    }
+
+    #[tokio::test]
+    async fn health_has_an_explicit_build_identity() {
+        let response = test_app()
+            .await
+            .oneshot(request("GET", "/health", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let health = json_body(response).await;
+        assert_eq!(health["status"], "ok");
+        assert_ne!(health["build_sha"], "unknown");
+        assert!(!health["build_sha"].as_str().unwrap_or_default().is_empty());
+    }
+
+    #[tokio::test]
+    async fn response_policy_does_not_advertise_an_unavailable_billing_origin() {
+        let response = test_app()
+            .await
+            .oneshot(request("GET", "/", None))
+            .await
+            .unwrap();
+        let policy = response
+            .headers()
+            .get("content-security-policy")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        assert!(policy.contains("connect-src 'self'"));
+        assert!(!policy.contains("sociobot.in"));
+    }
+
+    #[tokio::test]
+    async fn rejects_thirteenth_cue_at_the_api_boundary() {
+        let router = test_app().await;
+        let cues: Vec<_> = (1..=FREE_CUE_LIMIT + 1)
+            .map(|number| serde_json::json!({"scene":"Act", "name":format!("Cue {number}")}))
+            .collect();
+        let response = router
+            .oneshot(request(
+                "POST",
+                "/api/rooms",
+                Some(serde_json::json!({
+                    "title": "Too many cues",
+                    "cues": cues,
+                    "webhook_url": null,
+                    "webhook_secret": null
+                })),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json_body(response).await["error"],
+            "Add between 1 and 12 cues"
+        );
     }
 
     #[tokio::test]

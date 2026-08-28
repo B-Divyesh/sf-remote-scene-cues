@@ -12,7 +12,7 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
 COPY migrations ./migrations
 COPY src ./src
-ARG BUILD_SHA=unknown
+ARG BUILD_SHA=dev
 ENV BUILD_SHA=$BUILD_SHA
 RUN cargo build --locked --release
 
