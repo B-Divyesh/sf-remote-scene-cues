@@ -1,6 +1,10 @@
 node_modules/
+target/
 dist/
+scene-cues.db*
 .env
+playwright-report/
+test-results/
 *.log
 graphify-out/
 .DS_Store

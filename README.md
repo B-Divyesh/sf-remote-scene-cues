@@ -1,14 +1,112 @@
 # Scene Cues
 
-Live: https://remote-scene-cues.sociobot.in — built by the Param Factory (`web-with-backend`).
+Scene Cues is a narrow live cue remote for small escape-room, interactive-
+theatre, and live-game teams. A host writes an ordered cue sheet, opens an
+eight-hour room, and shares a private QR. Phone controllers request access,
+the host approves each device, and every **GO** advances exactly once on the
+server. Receipts remain synchronized across devices and can also be delivered
+as signed webhooks.
 
-See `.factory/brief.json` for the researched problem this solves and `.factory/design.md` for the visual system.
+Live product: <https://remote-scene-cues.sociobot.in>
 
-## Develop
+## What v1 includes
 
-```
+- Ordered scene/cue setup (12 cues free, 50 with a Cue Book license).
+- Short-lived private join links and explicit controller approval.
+- Server-Sent Events for live state and receipt synchronization.
+- Deterministic, serialized cue advancement and host-only cue selection.
+- Optional HTTPS webhooks signed with HMAC-SHA256.
+- CSV receipt export, manual log deletion, and automatic eight-hour expiry.
+- Offline/error/empty states, keyboard `G`, and a 390 px phone remote.
+- One-time Cue Book checkout and license restore through Sociobot billing.
+
+It intentionally does not stream video, perform matchmaking, replace game
+networking, or control safety-critical equipment.
+
+## Stack
+
+The frontend is Svelte 5 + TypeScript built by Vite. The Rust 2021 backend uses
+Axum, Tokio, SQLx, and SQLite, serves `dist/`, and exposes the API and SSE stream
+from the same origin. The production image runs as a non-root Alpine user.
+
+## Run locally
+
+Requirements: Node 22+, npm, Rust 1.88+, and SQLite build support.
+
+```sh
 npm install
-npm run dev
-npm test
-npm run build   # -> dist/
+npm run build
+DATABASE_URL='sqlite://scene-cues.db?mode=rwc' \
+PUBLIC_URL='http://localhost:8080' \
+cargo run
 ```
+
+Open <http://localhost:8080>. For frontend-only development, run the backend as
+above and `npm run dev` in another terminal; Vite proxies `/api` to port 8080.
+
+Configuration is environment-only:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `8080` | HTTP listen port |
+| `DATABASE_URL` | `sqlite://scene-cues.db?mode=rwc` | SQLite file |
+| `PUBLIC_URL` | `http://localhost:8080` | Origin placed in private join links |
+| `STATIC_DIR` | `dist` | Built frontend directory |
+| `RUST_LOG` | library default | Structured JSON log filter |
+| `VITE_BILLING_BASE` | `https://api.sociobot.in` | Build-time billing API base; use the pilot API on staging |
+
+## Test and verify
+
+```sh
+npm test             # Vitest unit tests + Rust API integration tests
+npm run test:e2e     # desktop + 390 px Chromium, axe, console checks
+npm run build        # reproducible frontend output in dist/
+docker build -t scene-cues .
+```
+
+Playwright is pinned to 1.58.2. Its browser path can be supplied with
+`PLAYWRIGHT_BROWSERS_PATH`. The end-to-end test starts the real Rust server and
+uses two isolated browser contexts to create, join, approve, and fire a cue.
+
+## Webhook contract
+
+For each accepted cue the server POSTs JSON like:
+
+```json
+{
+  "type": "cue.fired",
+  "event": {
+    "sequence": 1,
+    "scene": "Opening",
+    "cue_name": "House lights",
+    "controller_name": "Sam — booth",
+    "created_at": "2026-08-28T01:00:00Z"
+  }
+}
+```
+
+`X-Scene-Cues-Signature` is `sha256=<hex HMAC-SHA256 of the exact body>` using
+the host-provided secret. Only public HTTPS destinations are accepted; local,
+private, credential-bearing, and redirecting targets are rejected. A failed
+delivery is recorded but never changes cue order.
+
+## Privacy and deployment
+
+There are no analytics or third-party runtime fonts/scripts. Access tokens are
+stored in browser session storage. Cue Book licenses and saved cue sheets stay
+in local storage. Server rooms and receipts expire after eight hours and can be
+deleted immediately by the host. See `/privacy` and `/terms` in the app.
+
+For deployment, mount writable storage at `/data`, set `DATABASE_URL` and
+`PUBLIC_URL`, and run the included container. TLS and persistent volume policy
+belong to the factory deployment layer; this repository does not modify infra,
+DNS, or billing registration.
+
+The generated hero source, prompt metadata, and optimized variants live under
+`assets/src/` and `frontend/public/assets/`. Visual rationale and provenance are
+in [`.factory/design.md`](.factory/design.md).
+
+## License
+
+MIT. League Gothic is redistributed under the SIL Open Font License in
+`frontend/public/fonts/OFL-League-Gothic.md`.
