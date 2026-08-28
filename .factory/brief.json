@@ -1,0 +1,11 @@
+{
+  "slug": "remote-scene-cues",
+  "title": "Scene Cues",
+  "territory": "games-creative",
+  "user": "Small live-game, escape-room, and interactive-theatre teams who need a phone-friendly way to advance a shared scene/camera state without wrestling a multiplayer lobby during rehearsal.",
+  "smallest_useful_product": "A host page with named scenes/cues and a QR-linked controller page; controller actions are logged and can POST signed webhooks to an existing game or media app.",
+  "success_measure": "A two-device team can join a room and fire ten ordered scene cues in a rehearsal with no manual IP configuration and no missed cue receipt.",
+  "artifact_class": "web-with-backend",
+  "monetization": "freemium",
+  "constraints": "Use short-lived room secrets, explicit host approval, and deletion of logs by default; never expose the host's local network address to a third party."
+}
