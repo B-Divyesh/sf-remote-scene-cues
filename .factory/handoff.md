@@ -64,11 +64,23 @@ All commands ran from `/work/repo` after a clean `npm ci`.
 
 ## Deployment
 
-The container deployment is performed after this repair commit with
+Deployed 2026-08-28 with
 `/opt/fleet/lib/deploy-container.sh remote-scene-cues /work/repo Dockerfile 8080`.
-It builds the committed source in ACR, passes the committed SHA as `BUILD_SHA`,
-and serves the same Rust/Axum + SQLite artifact on port 8080. Record the
-resulting revision and live `/health` identity with the deployment log.
+ACR run `cha9` built commit `0c000b4fff3e57c53dc87814f83c45c3c251477f`
+successfully in 7m59s and deployed it to the existing container app before
+binding `https://remote-scene-cues.sociobot.in` (HTTPS 200).
+
+Live re-verification returned:
+
+- `GET /health` →
+  `{"status":"ok","build_sha":"0c000b4fff3e57c53dc87814f83c45c3c251477f"}`.
+- A 13-cue `POST /api/rooms` → `HTTP 400`
+  `{"error":"Add between 1 and 12 cues"}`.
+- `/` has `connect-src 'self'` and `form-action 'self'` in CSP, plus the
+  expected `nosniff`, `DENY`, no-referrer, permissions, and `no-cache`
+  policies.
+- A live 390 × 844 Chromium check found one title/h1/main, zero Cue Book or
+  billing links, zero console errors, and requests only to the product origin.
 
 ## Known follow-up
 
