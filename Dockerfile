@@ -12,6 +12,7 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
 COPY migrations ./migrations
 COPY src ./src
+COPY frontend/public/404.html ./frontend/public/404.html
 ARG BUILD_SHA=dev
 ENV BUILD_SHA=$BUILD_SHA
 RUN cargo build --locked --release
