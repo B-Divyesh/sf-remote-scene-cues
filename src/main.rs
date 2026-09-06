@@ -958,11 +958,12 @@ async fn main() {
         )
         .init();
     let default_database_url = if std::path::Path::new("/data").is_dir() {
-        // The first durable deployment used scene-cues.db. Keep this
-        // versioned filename so a stale SMB lease on that bootstrap file can
-        // never block a later one-replica rollout; this file remains on the
-        // same durable /data share across restarts and redeploys.
-        "sqlite:///data/scene-cues-v2.db?mode=rwc"
+        // Azure Files is mounted through CIFS. Its byte-range locks can be
+        // held by a retired revision, so use SQLite's dot-file VFS, which is
+        // designed for network filesystems. One replica and one pool
+        // connection keep this coordination model safe. The versioned path
+        // also leaves the failed bootstrap files untouched.
+        "sqlite:///data/scene-cues-v3.db?mode=rwc&vfs=unix-dotfile"
     } else {
         "sqlite://scene-cues.db?mode=rwc"
     };
@@ -1160,6 +1161,29 @@ mod unit_tests {
         run_migrations_with_retry(&db).await.unwrap();
         assert!(started.elapsed() >= StdDuration::from_secs(1));
         release.await.unwrap();
+        db.close().await;
+        let _ = std::fs::remove_file(file);
+    }
+
+    #[tokio::test]
+    async fn durable_network_filesystem_vfs_can_create_and_migrate_a_database() {
+        let file = std::env::temp_dir().join(format!("scene-cues-dotfile-{}.db", Uuid::new_v4()));
+        let database_url = format!("sqlite://{}?mode=rwc&vfs=unix-dotfile", file.display());
+        let options = SqliteConnectOptions::from_str(&database_url)
+            .unwrap()
+            .create_if_missing(true)
+            .busy_timeout(StdDuration::from_millis(50));
+        let db = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        run_migrations_with_retry(&db).await.unwrap();
+        let migrations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(migrations, 1);
         db.close().await;
         let _ = std::fs::remove_file(file);
     }
