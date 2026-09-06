@@ -958,7 +958,11 @@ async fn main() {
         )
         .init();
     let default_database_url = if std::path::Path::new("/data").is_dir() {
-        "sqlite:///data/scene-cues.db?mode=rwc"
+        // The first durable deployment used scene-cues.db. Keep this
+        // versioned filename so a stale SMB lease on that bootstrap file can
+        // never block a later one-replica rollout; this file remains on the
+        // same durable /data share across restarts and redeploys.
+        "sqlite:///data/scene-cues-v2.db?mode=rwc"
     } else {
         "sqlite://scene-cues.db?mode=rwc"
     };
