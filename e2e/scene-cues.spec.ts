@@ -47,12 +47,16 @@ test('@claim:private-join @claim:approved-phone host approves a phone through th
   await phoneContext.close();
 });
 
-test('mobile landing page preserves a single heading and reachable setup', async ({ page }) => {
+test('mobile landing page shows the sample action before scrolling and keeps setup reachable', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('h1')).toHaveCount(1);
   await expect(page.getByRole('link', { name: /Buy Cue Book/i })).toHaveCount(0);
   await expect(page.locator('a[href*="api.sociobot.in"]')).toHaveCount(0);
   await expect(page.locator('.label-row')).toContainText('/ 12');
+  const sampleAction = page.getByRole('link', { name: /Try it with sample data/ });
+  const sampleBox = await sampleAction.boundingBox();
+  expect(sampleBox).not.toBeNull();
+  expect(sampleBox!.y + sampleBox!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
   await page.getByRole('link', { name: /Create a real rehearsal room/ }).click();
   await expect(page.locator('#show-name')).toBeInViewport();
 });
