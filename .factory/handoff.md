@@ -5,7 +5,7 @@
 Independent QA reviewed implementation `c4d17db` at the live product. The
 documentation checkout and live build identity are `aee5700`; its only change
 from the implementation is this handoff file. The live JS/CSS byte-match the
-candidate build.
+candidate build. Verification report commit: `8cb364f`.
 
 **Verdict: FAIL — 4 findings and 7 untested public claims.** The core two-device
 flow, one-click isolated sample, all 13 declared claim commands, 28 Playwright

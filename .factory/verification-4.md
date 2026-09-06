@@ -4,7 +4,8 @@ Verified 2026-09-06 for work order `remote-scene-cues-verify-4`.
 
 - Live URL: <https://remote-scene-cues.sociobot.in>
 - Implementation candidate: `c4d17dba672eac1df2a11c51a5aa97747fb1833f`
-- Documentation checkout: `aee570019087e5e0b549afc73e2825a8fd0a6d1d`
+- Documentation base: `aee570019087e5e0b549afc73e2825a8fd0a6d1d`
+- Verification report commit: `8cb364f87cc675bef533a8f365699455681380af`
 - Live `/health` build: `aee570019087e5e0b549afc73e2825a8fd0a6d1d`
 - Starting repository worktree: clean
 
