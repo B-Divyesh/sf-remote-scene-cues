@@ -26,6 +26,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::Arc,
+    time::Duration as StdDuration,
 };
 use tokio::sync::{broadcast, Mutex};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
@@ -777,6 +778,36 @@ async fn cleanup_expired(
     }
 }
 
+/// Azure Files can retain a short SQLite lock while a revision is being
+/// replaced.  There is only one application replica, so waiting for that
+/// hand-off is safe; failing the process makes the lock window much worse by
+/// repeatedly restarting it.
+async fn run_migrations_with_retry(db: &SqlitePool) -> Result<(), sqlx::migrate::MigrateError> {
+    const DELAYS: [StdDuration; 5] = [
+        StdDuration::from_secs(1),
+        StdDuration::from_secs(2),
+        StdDuration::from_secs(3),
+        StdDuration::from_secs(5),
+        StdDuration::from_secs(8),
+    ];
+
+    for (attempt, delay) in DELAYS.iter().enumerate() {
+        match sqlx::migrate!().run(db).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    wait_seconds = delay.as_secs(),
+                    error = %error,
+                    "migration did not complete; retrying"
+                );
+                tokio::time::sleep(*delay).await;
+            }
+        }
+    }
+    sqlx::migrate!().run(db).await
+}
+
 async fn security_headers(request: Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let mut response = next.run(request).await;
@@ -945,13 +976,18 @@ async fn main() {
     let options = SqliteConnectOptions::from_str(&database_url)
         .expect("valid DATABASE_URL")
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(true)
+        .busy_timeout(StdDuration::from_secs(20));
     let db = SqlitePoolOptions::new()
-        .max_connections(8)
+        // SQLite is a single-writer database. One shared connection avoids
+        // self-inflicted write locks on the durable file share.
+        .max_connections(1)
         .connect_with(options)
         .await
         .expect("connect database");
-    sqlx::migrate!().run(&db).await.expect("run migrations");
+    run_migrations_with_retry(&db)
+        .await
+        .expect("run migrations");
     let state = AppState {
         db: db.clone(),
         channels: Default::default(),
