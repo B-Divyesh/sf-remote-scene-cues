@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Demo from './Demo.svelte';
   import { csvEscape, formatClock, parseCues, type ParsedCue } from './lib';
 
   type Cue = ParsedCue & { id: string; position: number };
@@ -37,7 +38,19 @@ Finale | Full lights and applause`;
   let webhookSecret = '';
   let eventSource: EventSource | null = null;
 
+  const pageTitle = page === 'privacy' ? 'Privacy — Scene Cues'
+    : page === 'terms' ? 'Terms — Scene Cues'
+    : page === 'demo' ? 'Demo — Scene Cues'
+    : page === 'host' ? `Host room ${code} — Scene Cues`
+    : page === 'join' ? `Join room ${code} — Scene Cues`
+    : 'Scene Cues — run shared rehearsal cues';
+
   onMount(() => {
+    const canonical = `${location.origin}${location.pathname}`;
+    document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', canonical);
+    document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute('content', canonical);
+    document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute('content', pageTitle);
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute('content', pageTitle);
     if (joinSecret && roomToken) {
       history.replaceState({}, '', `/join/${code}`);
       joinSecret = '';
@@ -170,27 +183,31 @@ Finale | Full lights and applause`;
 
 <svelte:window onkeydown={keyboardGo} />
 
+<svelte:head><title>{pageTitle}</title></svelte:head>
+
 <a class="skip-link" href="#main">Skip to main content</a>
 <div class:offline={!online} class="network" role="status" aria-live="polite">{online ? 'Live link ready' : 'Offline — controls paused'}</div>
 
 <header class="masthead">
   <a class="wordmark" href="/" aria-label="Scene Cues home"><span aria-hidden="true">SC</span> Scene Cues</a>
   <nav aria-label="Primary">
+    <a href="/demo">Demo</a>
     <a href="/#how">How it works</a>
+    <a href="/privacy">Privacy</a>
   </nav>
 </header>
 
 {#if page === 'privacy'}
   <main id="main" class="legal">
-    <p class="kicker">Legal / Privacy</p><h1>Short rooms.<br/>Short memory.</h1>
-    <p>Scene Cues stores room names, cue text, controller names, webhook settings, and cue receipts on our server only while a room is live. Rooms and their logs expire after eight hours, or immediately when the host ends the room. We do not use analytics, advertising cookies, or third-party trackers.</p>
+    <p class="kicker">Legal / Privacy</p><h1>How Scene Cues handles room data</h1>
+    <p>Scene Cues stores room names, cue text, controller names, webhook settings, and cue receipts only while a room is live. Rooms and their logs expire after eight hours, or immediately when the host ends the room. We do not use analytics, advertising cookies, or third-party trackers.</p>
     <h2>On your device</h2><p>Room access tokens live in session storage and disappear when the browser session closes. Scene Cues does not store room data in local storage. You can remove any browser site data with your browser’s site-data controls.</p>
     <h2>Webhooks</h2><p>If a host configures a webhook, cue payloads are sent only to that HTTPS address and signed with the supplied secret. Private and local-network addresses are rejected.</p>
     <p>Questions: <a href="mailto:privacy@sociobot.in">privacy@sociobot.in</a></p>
   </main>
 {:else if page === 'terms'}
   <main id="main" class="legal">
-    <p class="kicker">Legal / Terms</p><h1>A rehearsal aid,<br/>not a safety system.</h1>
+    <p class="kicker">Legal / Terms</p><h1>Use Scene Cues for rehearsal work</h1>
     <p>Scene Cues is provided “as is” for creative rehearsals and performances. Do not use it for pyrotechnics, life-safety systems, access control, or any action where a late, duplicated, or unavailable network message could cause harm.</p>
     <h2>Rooms and acceptable use</h2><p>You are responsible for cue content, controller approvals, webhook destinations, and keeping room links private. Do not use the service to attack systems or send unlawful material. We may limit abusive traffic.</p>
   </main>
@@ -199,7 +216,7 @@ Finale | Full lights and applause`;
     {#if !roomToken}
       <section class="join-sheet">
         <p class="folio">Controller / Room {code || 'unknown'}</p>
-        <h1>Ask to join<br/>the cue desk.</h1>
+        <h1>Request access to this rehearsal room</h1>
         <p class="lede">The host will see this name and approve this device before it can fire anything.</p>
         <form onsubmit={(e) => { e.preventDefault(); joinRoom(); }}>
           <label for="controller-name">Controller name</label>
@@ -208,7 +225,7 @@ Finale | Full lights and applause`;
         </form>
       </section>
     {:else if snapshot?.status === 'pending'}
-      <section class="waiting"><p class="folio">Room {code}</p><h1>Waiting at<br/>the door.</h1><div class="stamp">Approval pending</div><p>Keep this page open. The controls will appear as soon as the host approves this device.</p></section>
+      <section class="waiting"><p class="folio">Room {code}</p><h1>Waiting for host approval</h1><div class="stamp">Approval pending</div><p>Keep this page open. The controls will appear as soon as the host approves this device.</p></section>
     {:else if snapshot?.status === 'rejected'}
       <section class="waiting"><p class="folio">Room {code}</p><h1>Not approved.</h1><p>The host declined this controller. Ask them for a fresh link if that was a mistake.</p></section>
     {:else if snapshot}
@@ -287,16 +304,18 @@ Finale | Full lights and applause`;
     {#if error}<p class="alert error" role="alert">{error}</p>{/if}
     {#if notice}<p class="alert" role="status">{notice}</p>{/if}
   </main>
+{:else if page === 'demo'}
+  <Demo />
 {:else}
   <main id="main">
     <section class="hero">
-      <div class="hero-copy"><p class="folio">Vol. 01 / Live rehearsal utility</p><h1>Advance the scene.<br/><em>Skip the lobby.</em></h1><p class="lede">A phone-friendly cue desk for tiny live-game, escape-room, and theatre teams. Share one private QR. Approve the crew. Fire every cue in order.</p><a class="ink-button link-button" href="#create">Open a rehearsal room <span aria-hidden="true">↓</span></a></div>
-      <figure><picture><source type="image/avif" media="(min-width: 900px)" srcset="/assets/scene-cues-hero-large.avif"/><source type="image/avif" srcset="/assets/scene-cues-hero-mobile.avif"/><source media="(min-width: 900px)" srcset="/assets/scene-cues-hero-large.webp"/><img src="/assets/scene-cues-hero.webp" width="960" height="640" alt="Woodcut-style cue sheets, stage lights, coiled cable, and one red cue button" fetchpriority="high" decoding="async" /></picture><figcaption>One cue light. One shared truth. Original AI-assisted illustration.</figcaption></figure>
+      <div class="hero-copy"><p class="folio">Live rehearsal cue control</p><h1>Run shared rehearsal cues from approved phones</h1><p class="lede">For small escape-room, live-game, and theatre teams rehearsing scene changes.</p><div class="hero-actions"><a class="ink-button link-button" href="/demo">Try it with sample data <span aria-hidden="true">→</span></a><p>Opens a ten-cue sample room.</p><a class="text-button real-link" href="#create">Create a real rehearsal room <span aria-hidden="true">↓</span></a></div></div>
+      <figure><picture><source type="image/avif" media="(min-width: 900px)" srcset="/assets/scene-cues-hero-large.avif"/><source type="image/avif" srcset="/assets/scene-cues-hero-mobile.avif"/><source media="(min-width: 900px)" srcset="/assets/scene-cues-hero-large.webp"/><img src="/assets/scene-cues-hero.webp" width="960" height="640" alt="An illustrated cue sheet, stage lights, coiled cable, and a red cue button" fetchpriority="high" decoding="async" /></picture><figcaption>Original AI-assisted illustration. Asset details are in the project source.</figcaption></figure>
     </section>
-    <section class="proof-strip" aria-label="Product facts"><span>01 / Eight-hour rooms</span><span>02 / Host-approved devices</span><span>03 / Signed webhook receipts</span></section>
+    <section class="proof-strip" aria-label="Product facts"><span>Rooms delete after eight hours</span><span>Hosts approve each phone</span><span>Optional signed webhooks</span></section>
 
     <section id="create" class="create-section">
-      <div class="create-intro"><p class="kicker">Make the call sheet</p><h2>Room setup</h2><p>No account. Nothing to install. Room data and receipts delete automatically after eight hours.</p></div>
+      <div class="create-intro"><p class="kicker">Start a real rehearsal</p><h2>Set up a room</h2><p>Enter up to 12 cues. Share the private QR, then approve each phone.</p></div>
       <form class="setup-form" onsubmit={(e) => { e.preventDefault(); createRoom(); }}>
         <label for="show-name">Rehearsal name</label><input id="show-name" bind:value={showName} maxlength="80" required />
         <div class="label-row"><label for="cues">Scenes and cues</label><span>{parseCues(cuesText).length} / 12</span></div>
@@ -307,9 +326,9 @@ Finale | Full lights and applause`;
       </form>
     </section>
 
-    <section id="how" class="how-section"><p class="kicker">The running order</p><h2>From call sheet to GO<br/>in under a minute.</h2><ol><li><span>1</span><div><strong>Write the sequence</strong><p>Name the scenes and cues in their real running order.</p></div></li><li><span>2</span><div><strong>Approve the booth</strong><p>Controllers scan the private QR; nothing works until the host says yes.</p></div></li><li><span>3</span><div><strong>Call GO</strong><p>Every press advances once on the server, logs a receipt, and optionally posts a signed webhook.</p></div></li></ol></section>
+    <section id="how" class="how-section"><p class="kicker">How it works</p><h2>Share, approve, and send cues</h2><ol><li><span>1</span><div><strong>Write the sequence</strong><p>Name the scenes and cues in their real running order.</p></div></li><li><span>2</span><div><strong>Approve each phone</strong><p>Controllers scan the private QR. They cannot send cues until the host approves them.</p></div></li><li><span>3</span><div><strong>Send GO</strong><p>The server advances each cue once, records a receipt, and can post a signed webhook.</p></div></li></ol></section>
 
   </main>
 {/if}
 
-<footer><p>Scene Cues — made for the moment before “GO.”</p><nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="https://sociobot.in">A Param Factory product</a></nav><p class="micro">Hero imagery is original and AI-assisted; provenance is documented in the source.</p></footer>
+<footer><p>Scene Cues is a phone-friendly shared cue remote for rehearsals.</p><nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="https://sociobot.in">Built by Param Factory <span aria-hidden="true">↗</span></a></nav><p class="micro">Build v1.0 · Hero imagery is original and AI-assisted.</p></footer>

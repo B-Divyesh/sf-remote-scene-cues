@@ -1,110 +1,103 @@
 # Scene Cues
 
-Scene Cues is a narrow live cue remote for small escape-room, interactive-
-theatre, and live-game teams. A host writes an ordered cue sheet, opens an
-eight-hour room, and shares a private QR. Phone controllers request access,
-the host approves each device, and every **GO** advances exactly once on the
-server. Receipts remain synchronized across devices and can also be delivered
-as signed webhooks.
+Scene Cues lets small escape-room, live-game, and interactive-theatre teams run
+shared rehearsal cues from approved phones. A host writes up to 12 cues, shares
+a private QR link, approves each controller, and receives ordered cue receipts.
+An existing game or media app can receive optional signed HTTPS webhooks.
 
 Live product: <https://remote-scene-cues.sociobot.in>
 
-## What v1 includes
+## Try the sample
 
-- Ordered scene/cue setup (up to 12 cues per room).
-- Short-lived private join links and explicit controller approval.
-- Server-Sent Events for live state and receipt synchronization.
-- Deterministic, serialized cue advancement and host-only cue selection.
-- Optional HTTPS webhooks signed with HMAC-SHA256.
-- CSV receipt export, manual log deletion, and automatic eight-hour expiry.
-- Offline/error/empty states, keyboard `G`, and a 390 px phone remote.
+Open <https://remote-scene-cues.sociobot.in/demo> or choose **Try it with
+sample data** on the landing page. It opens *The Lantern Room — tech rehearsal*
+with ten cues and populated receipts. The persistent demo label explains that
+sample data is separate from real rooms. **Reset demo** restores the sample;
+**Start for real** discards it.
 
-It intentionally does not stream video, perform matchmaking, replace game
+See [`.factory/demo.md`](.factory/demo.md) for the sample and storage boundary.
+
+## What it does
+
+- Hosts create a room with 1–12 ordered scene cues.
+- Controllers use a private join link and wait for host approval.
+- Each accepted GO creates an ordered receipt.
+- Hosts can download receipts as CSV or clear the log.
+- Rooms delete after eight hours. Hosts can delete them sooner.
+- Optional public HTTPS webhooks receive HMAC-SHA256 signed cue receipts.
+
+Scene Cues does not stream video, create player lobbies, replace game
 networking, or control safety-critical equipment.
-
-## Stack
-
-The frontend is Svelte 5 + TypeScript built by Vite. The Rust 2021 backend uses
-Axum, Tokio, SQLx, and SQLite, serves `dist/`, and exposes the API and SSE stream
-from the same origin. The production image runs as a non-root Alpine user.
 
 ## Run locally
 
-Requirements: Node 22+, npm, Rust 1.88+, and SQLite build support.
+Requirements: Node 22+, npm, and current stable Rust with SQLite support.
 
 ```sh
-npm install
+npm ci
 npm run build
-DATABASE_URL='sqlite://scene-cues.db?mode=rwc' \
-PUBLIC_URL='http://localhost:8080' \
-cargo run
+PORT=8080 cargo run
 ```
 
-Open <http://localhost:8080>. For frontend-only development, run the backend as
-above and `npm run dev` in another terminal; Vite proxies `/api` to port 8080.
+Open <http://localhost:8080>. The server uses `/data/scene-cues.db` when a
+`/data` mount exists; otherwise it creates `scene-cues.db` in the current
+directory. For frontend development, start the backend and run `npm run dev`
+in another terminal. Vite proxies `/api` and `/health` to port 8080.
 
-Configuration is environment-only:
+Optional environment overrides:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PORT` | `8080` | HTTP listen port |
-| `DATABASE_URL` | `sqlite://scene-cues.db?mode=rwc` | SQLite file |
-| `PUBLIC_URL` | `https://remote-scene-cues.sociobot.in` | Origin placed in private join links; override for local development |
+| `PORT` | `8080` | HTTP listener port |
+| `DATABASE_URL` | `/data` SQLite when mounted, otherwise local SQLite | Override database location |
+| `PUBLIC_URL` | production Scene Cues origin | Origin in real private join links |
 | `STATIC_DIR` | `dist` | Built frontend directory |
-| `RUST_LOG` | library default | Structured JSON log filter |
+| `RUST_LOG` | `info` | Structured log filter |
 
 ## Test and verify
 
 ```sh
-npm test             # Vitest unit tests + Rust API integration tests
-npm run test:e2e     # desktop + 390 px Chromium, axe, console checks
-npm run build        # reproducible frontend output in dist/
-docker build -t scene-cues .
+npm ci
+npm run check
+npm test
+npm run build
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+npm run test:e2e
+cargo build --locked --release
 ```
 
-Playwright is pinned to 1.58.2. Its browser path can be supplied with
-`PLAYWRIGHT_BROWSERS_PATH`. The end-to-end test starts the real Rust server and
-uses two isolated browser contexts to create, join, approve, and fire a cue.
+Every visitor-facing claim is listed in [`.factory/claims.json`](.factory/claims.json).
+Run its exact commands from a clean checkout. Browser claim tests use `/demo`;
+the room-expiry and HMAC fixture claims use isolated Rust tests.
 
-## Webhook contract
+Playwright is pinned to 1.58.2. Set `PLAYWRIGHT_BROWSERS_PATH` when the browser
+is installed outside Playwright's default cache.
 
-For each accepted cue the server POSTs JSON like:
+## Privacy and safety
 
-```json
-{
-  "type": "cue.fired",
-  "event": {
-    "sequence": 1,
-    "scene": "Opening",
-    "cue_name": "House lights",
-    "controller_name": "Sam — booth",
-    "created_at": "2026-08-28T01:00:00Z"
-  }
-}
+There are no analytics, tracking pixels, third-party runtime scripts, or CDN
+fonts. Real room access tokens remain in browser session storage. The sample
+uses a separate `demo:` local-storage namespace and an in-memory demo
+workspace. Read the live [privacy policy](https://remote-scene-cues.sociobot.in/privacy)
+and [terms](https://remote-scene-cues.sociobot.in/terms).
+
+Do not use Scene Cues for pyrotechnics, life-safety systems, access control, or
+any action where a delayed or duplicated message could cause harm.
+
+## Deploy
+
+The container starts on `PORT` (default `8080`) without required secrets. It
+uses `/data` for persistent SQLite state and must run as one replica. The
+factory deployment command preserves the product volume, probes, environment,
+and one-replica bound:
+
+```sh
+WO_DATA_DIR=/data /opt/fleet/lib/deploy-container.sh remote-scene-cues . Dockerfile 8080
 ```
 
-`X-Scene-Cues-Signature` is `sha256=<hex HMAC-SHA256 of the exact body>` using
-the host-provided secret. Only public HTTPS destinations are accepted; local,
-private, credential-bearing, and redirecting targets are rejected. A failed
-delivery is recorded but never changes cue order.
-
-## Privacy and deployment
-
-There are no analytics or third-party runtime fonts/scripts. Access tokens are
-stored in browser session storage. Server rooms and receipts expire after eight
-hours and can be deleted immediately by the host. See `/privacy` and `/terms`
-in the app.
-
-For deployment, mount writable storage at `/data` and run exactly one replica,
-because SQLite is a single-instance store. The image needs only `PORT`; it
-defaults private join links to the canonical production HTTPS origin. Override
-`DATABASE_URL` and `PUBLIC_URL` for local or non-production environments. TLS,
-persistent volume, and replica policy belong to the factory deployment layer;
-horizontal scaling requires a shared transactional database and event bus.
-
-The generated hero source, prompt metadata, and optimized variants live under
-`assets/src/` and `frontend/public/assets/`. Visual rationale and provenance are
-in [`.factory/design.md`](.factory/design.md).
+The Docker image is multi-stage, runs as a non-root user, and reports its
+build SHA at `/health`.
 
 ## License
 

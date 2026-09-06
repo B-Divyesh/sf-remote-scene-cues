@@ -11,6 +11,7 @@
     "test:ui": "vitest run --config vitest.config.ts",
     "test": "npm run test:ui && cargo test",
     "test:e2e": "playwright test",
+    "test:claims": "playwright test --grep @claim:",
     "start": "cargo run --release"
   },
   "devDependencies": {

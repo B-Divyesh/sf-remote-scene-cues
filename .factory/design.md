@@ -76,3 +76,6 @@ Generated with the Param Factory Azure image deployment (`factory-image`) on
 the repository's MIT license. Source PNG and prompt metadata are retained in
 `assets/src/`; delivery variants are WebP and AVIF with explicit dimensions.
 
+`frontend/public/og-scene-cues.jpg` is a 1200 × 630 crop derived from that
+selected original hero. `apple-touch-icon.png` is a hand-composed ink-and-paper
+SC monogram made from the same palette; it contains no external artwork.

@@ -6,7 +6,7 @@ COPY frontend ./frontend
 COPY vite.config.ts vitest.config.ts ./
 RUN npm run build
 
-FROM rust:1.88-alpine AS backend
+FROM rust:1-alpine AS backend
 RUN apk add --no-cache musl-dev pkgconfig openssl-dev
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
@@ -23,7 +23,6 @@ COPY --from=backend /build/target/release/scene-cues /usr/local/bin/scene-cues
 COPY --from=frontend /build/dist ./dist
 RUN mkdir /data && chown app:app /data
 USER app
-ENV PORT=8080 STATIC_DIR=/app/dist DATABASE_URL=sqlite:///data/scene-cues.db?mode=rwc
 EXPOSE 8080
 VOLUME ["/data"]
 CMD ["scene-cues"]

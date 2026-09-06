@@ -1,0 +1,16 @@
+@font-face { font-family: LeagueGothic; src: url('/fonts/league-gothic.ttf') format('truetype'); font-display: swap; }
+:root { color:#151512; background:#f2eedf; font-family:system-ui,sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; min-width:320px; }
+a { color:inherit; text-underline-offset:.2em; }
+.skip { position:absolute; left:-999px; top:8px; }
+.skip:focus { left:8px; z-index:2; background:#151512; color:#fbf9f1; padding:12px; }
+header,main,footer { padding:24px clamp(20px,7vw,112px); }
+header { border-bottom:2px solid #151512; font-weight:800; text-transform:uppercase; letter-spacing:.08em; }
+main { min-height:66vh; max-width:900px; padding-top:clamp(64px,14vw,160px); }
+.folio { font-weight:800; font-size:13px; letter-spacing:.12em; text-transform:uppercase; }
+h1 { margin:16px 0 32px; font:400 clamp(76px,16vw,156px)/.85 LeagueGothic,Impact,sans-serif; text-transform:uppercase; }
+p { max-width:52ch; font-size:18px; line-height:1.5; }
+.button { display:inline-flex; min-height:52px; align-items:center; padding:12px 18px; border:2px solid #151512; background:#151512; color:#fbf9f1; font-weight:800; text-decoration:none; }
+:focus-visible { outline:3px solid #fbf9f1; box-shadow:0 0 0 6px #7a1b17; }
+footer { border-top:2px solid #151512; font-size:14px; }

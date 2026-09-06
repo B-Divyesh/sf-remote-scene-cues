@@ -1,0 +1,93 @@
+[
+  {
+    "id": "private-join",
+    "claim": "A private join link lets a phone request access to a rehearsal room.",
+    "where": "Landing page setup and README",
+    "test": "npm run test:e2e -- --grep @claim:private-join",
+    "sandbox": "Create a temporary room, open its private link in a separate phone context, and approve that phone."
+  },
+  {
+    "id": "demo-sandbox",
+    "claim": "The sample rehearsal is populated, resettable, and does not create a real room.",
+    "where": "Landing primary action and demo banner",
+    "test": "npm run test:e2e -- --grep @claim:demo-sandbox",
+    "sandbox": "Open /demo, use the sample, reset it, and assert no /api/rooms request or non-demo storage key appears."
+  },
+  {
+    "id": "approved-phone",
+    "claim": "A host must approve a phone before it can send a cue.",
+    "where": "Landing facts and How it works",
+    "test": "npm run test:e2e -- --grep @claim:approved-phone",
+    "sandbox": "Create a temporary room, request access from a separate phone context, verify it is pending, then approve it."
+  },
+  {
+    "id": "ordered-go",
+    "claim": "The server records accepted GO actions once in cue order.",
+    "where": "How it works and README",
+    "test": "cargo test approved_controller_gets_ten_once_only_ordered_receipts",
+    "sandbox": "Use an isolated in-memory room, fire ten controller GO actions, verify receipt sequences 1–10, and verify an eleventh is refused."
+  },
+  {
+    "id": "demo-approval",
+    "claim": "The sample shows approval before a controller can send GO.",
+    "where": "Demo controller approval panel",
+    "test": "npm run test:e2e -- --grep @claim:demo-approval",
+    "sandbox": "In /demo, verify GO is disabled for Alex, approve Alex, then verify the next receipt and cue appear."
+  },
+  {
+    "id": "cue-limit",
+    "claim": "Small rehearsal rooms support up to 12 ordered cues.",
+    "where": "Real room setup and demo cue limit",
+    "test": "npm run test:e2e -- --grep @claim:cue-limit",
+    "sandbox": "In /demo, add sample cues from ten to twelve and verify a thirteenth is refused with a clear message."
+  },
+  {
+    "id": "csv-export",
+    "claim": "Cue receipts can be downloaded as CSV.",
+    "where": "Host log and demo sample output",
+    "test": "npm run test:e2e -- --grep @claim:csv-export",
+    "sandbox": "In /demo, download the populated receipt log and inspect its CSV header."
+  },
+  {
+    "id": "log-deletion",
+    "claim": "A host can clear a cue receipt log.",
+    "where": "Host log controls and demo sample output",
+    "test": "npm run test:e2e -- --grep @claim:log-deletion",
+    "sandbox": "In /demo, clear the sample receipts and verify the empty state."
+  },
+  {
+    "id": "keyboard-go",
+    "claim": "An approved controller can send GO with the G key.",
+    "where": "Controller GO control",
+    "test": "npm run test:e2e -- --grep @claim:keyboard-go",
+    "sandbox": "In /demo, approve Alex, press G, and verify the new receipt."
+  },
+  {
+    "id": "offline-reload",
+    "claim": "The demo remains available after an offline reload once it has loaded.",
+    "where": "README",
+    "test": "npm run test:e2e -- --grep @claim:offline-reload",
+    "sandbox": "Use a new browser context, wait for service-worker control, set it offline, reload /demo, and verify the sample heading."
+  },
+  {
+    "id": "privacy-same-origin",
+    "claim": "Demo activity only contacts this site.",
+    "where": "Privacy page and README",
+    "test": "npm run test:e2e -- --grep @claim:privacy-same-origin",
+    "sandbox": "Record every browser request during the demo approval and GO flow and require the product origin for all of them."
+  },
+  {
+    "id": "room-expiry",
+    "claim": "Rooms delete after eight hours and expired rooms cannot be opened.",
+    "where": "Landing facts, privacy page, and README",
+    "test": "cargo test expired_room_is_unavailable_even_with_a_valid_host_token",
+    "sandbox": "Use an isolated in-memory database with an expired room and a valid host token; the observable response is HTTP 410."
+  },
+  {
+    "id": "webhook-receipt",
+    "claim": "Optional webhook receipts are signed with HMAC-SHA256.",
+    "where": "Landing facts, setup help, and README",
+    "test": "cargo test webhook_signature_is_reproducible_from_the_delivered_body",
+    "sandbox": "Sign a fixed delivered cue body in an isolated test and compare the complete HMAC-SHA256 header value."
+  }
+]

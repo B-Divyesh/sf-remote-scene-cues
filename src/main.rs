@@ -49,7 +49,13 @@ struct AppState {
     db: SqlitePool,
     channels: Arc<Mutex<HashMap<String, broadcast::Sender<String>>>>,
     cue_lock: Arc<Mutex<()>>,
+    demo_workspaces: Arc<Mutex<HashMap<String, DemoWorkspace>>>,
     public_url: String,
+}
+
+#[derive(Clone)]
+struct DemoWorkspace {
+    expires_at: chrono::DateTime<Utc>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -193,8 +199,22 @@ struct Health {
     build_sha: String,
 }
 
+#[derive(Serialize)]
+struct DemoWorkspaceResponse {
+    id: String,
+    expires_at: String,
+    title: &'static str,
+    cue_count: usize,
+}
+
 fn hash_token(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
+}
+
+fn webhook_signature(secret: &str, body: &[u8]) -> String {
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("hmac accepts key");
+    mac.update(body);
+    format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
 }
 fn random_token(len: usize) -> String {
     rand::thread_rng()
@@ -249,6 +269,35 @@ async fn health() -> Json<Health> {
     })
 }
 
+async fn create_demo_workspace(
+    State(state): State<AppState>,
+) -> (StatusCode, Json<DemoWorkspaceResponse>) {
+    let id = Uuid::new_v4().to_string();
+    let expires_at = Utc::now() + Duration::hours(24);
+    state
+        .demo_workspaces
+        .lock()
+        .await
+        .insert(id.clone(), DemoWorkspace { expires_at });
+    (
+        StatusCode::CREATED,
+        Json(DemoWorkspaceResponse {
+            id,
+            expires_at: expires_at.to_rfc3339(),
+            title: "The Lantern Room — tech rehearsal",
+            cue_count: 10,
+        }),
+    )
+}
+
+async fn delete_demo_workspace(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> StatusCode {
+    state.demo_workspaces.lock().await.remove(&id);
+    StatusCode::NO_CONTENT
+}
+
 async fn create_room(
     State(state): State<AppState>,
     Json(input): Json<CreateRoom>,
@@ -286,16 +335,18 @@ async fn create_room(
     let now = Utc::now().to_rfc3339();
     let mut tx = state.db.begin().await?;
     let mut code = String::new();
+    let mut room_created = false;
     for _ in 0..8 {
         code = random_code();
         let inserted = sqlx::query("INSERT OR IGNORE INTO rooms (id, code, title, host_token_hash, join_secret_hash, webhook_url, webhook_secret, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(&id).bind(&code).bind(input.title.trim()).bind(hash_token(&host_token)).bind(hash_token(&join_secret))
             .bind(input.webhook_url.as_deref()).bind(input.webhook_secret.as_deref()).bind(&now).bind(expires_at.to_rfc3339()).execute(&mut *tx).await?;
         if inserted.rows_affected() == 1 {
+            room_created = true;
             break;
         }
     }
-    if code.is_empty() {
+    if !room_created {
         return Err(ApiError::Internal);
     }
     for (position, cue) in input.cues.iter().enumerate() {
@@ -612,9 +663,7 @@ async fn deliver_webhook(
     }
     let body = serde_json::to_vec(&serde_json::json!({"type":"cue.fired","event":event}))
         .unwrap_or_default();
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("hmac accepts key");
-    mac.update(&body);
-    let signature = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
+    let signature = webhook_signature(&secret, &body);
     let client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -708,7 +757,10 @@ async fn notify(state: &AppState, code: &str, message: &str) {
     }
 }
 
-async fn cleanup_expired(db: &SqlitePool) {
+async fn cleanup_expired(
+    db: &SqlitePool,
+    demo_workspaces: &Arc<Mutex<HashMap<String, DemoWorkspace>>>,
+) {
     loop {
         if let Err(err) = sqlx::query("DELETE FROM rooms WHERE expires_at <= ?")
             .bind(Utc::now().to_rfc3339())
@@ -717,6 +769,10 @@ async fn cleanup_expired(db: &SqlitePool) {
         {
             tracing::warn!(error = %err, "expiration cleanup failed");
         }
+        demo_workspaces
+            .lock()
+            .await
+            .retain(|_, workspace| workspace.expires_at > Utc::now());
         tokio::time::sleep(std::time::Duration::from_secs(900)).await;
     }
 }
@@ -779,9 +835,16 @@ fn is_content_hashed_asset(path: &str) -> bool {
         })
 }
 
+async fn not_found_page() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        [("content-type", "text/html; charset=utf-8")],
+        include_str!("../frontend/public/404.html"),
+    )
+        .into_response()
+}
+
 fn app(state: AppState, static_dir: PathBuf) -> Router {
-    let fallback =
-        ServeDir::new(&static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
     let rate_limit = Arc::new(
         GovernorConfigBuilder::default()
             .per_second(2)
@@ -791,6 +854,8 @@ fn app(state: AppState, static_dir: PathBuf) -> Router {
             .expect("valid rate-limit configuration"),
     );
     let api = Router::new()
+        .route("/demo/workspaces", post(create_demo_workspace))
+        .route("/demo/workspaces/:id", delete(delete_demo_workspace))
         .route("/rooms", post(create_room))
         .route("/rooms/:code", get(snapshot).delete(delete_room))
         .route("/rooms/:code/join", post(join_room))
@@ -811,7 +876,33 @@ fn app(state: AppState, static_dir: PathBuf) -> Router {
     Router::new()
         .route("/health", get(health))
         .nest("/api", api)
-        .fallback_service(fallback)
+        .route_service("/", ServeFile::new(static_dir.join("index.html")))
+        .route_service("/demo", ServeFile::new(static_dir.join("index.html")))
+        .route_service("/privacy", ServeFile::new(static_dir.join("index.html")))
+        .route_service("/terms", ServeFile::new(static_dir.join("index.html")))
+        .route_service("/host/:code", ServeFile::new(static_dir.join("index.html")))
+        .route_service("/join/:code", ServeFile::new(static_dir.join("index.html")))
+        .route("/404", get(not_found_page))
+        .route_service("/404.css", ServeFile::new(static_dir.join("404.css")))
+        .route_service("/sw.js", ServeFile::new(static_dir.join("sw.js")))
+        .route_service("/mark.svg", ServeFile::new(static_dir.join("mark.svg")))
+        .route_service("/favicon.ico", ServeFile::new(static_dir.join("mark.svg")))
+        .route_service(
+            "/apple-touch-icon.png",
+            ServeFile::new(static_dir.join("apple-touch-icon.png")),
+        )
+        .route_service(
+            "/og-scene-cues.jpg",
+            ServeFile::new(static_dir.join("og-scene-cues.jpg")),
+        )
+        .route_service("/robots.txt", ServeFile::new(static_dir.join("robots.txt")))
+        .route_service(
+            "/sitemap.xml",
+            ServeFile::new(static_dir.join("sitemap.xml")),
+        )
+        .nest_service("/assets", ServeDir::new(static_dir.join("assets")))
+        .nest_service("/fonts", ServeDir::new(static_dir.join("fonts")))
+        .fallback(not_found_page)
         .layer(middleware::from_fn(security_headers))
         .layer(CompressionLayer::new())
         .layer(
@@ -835,8 +926,12 @@ async fn main() {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
-    let (database_url, database_source) =
-        env_or_default("DATABASE_URL", "sqlite://scene-cues.db?mode=rwc");
+    let default_database_url = if std::path::Path::new("/data").is_dir() {
+        "sqlite:///data/scene-cues.db?mode=rwc"
+    } else {
+        "sqlite://scene-cues.db?mode=rwc"
+    };
+    let (database_url, database_source) = env_or_default("DATABASE_URL", default_database_url);
     let (public_url, public_url_source) = env_or_default("PUBLIC_URL", DEFAULT_PUBLIC_URL);
     let (static_dir, static_dir_source) = env_or_default("STATIC_DIR", "dist");
     let (port_value, port_source) = env_or_default("PORT", "8080");
@@ -861,9 +956,11 @@ async fn main() {
         db: db.clone(),
         channels: Default::default(),
         cue_lock: Default::default(),
+        demo_workspaces: Default::default(),
         public_url,
     };
-    tokio::spawn(async move { cleanup_expired(&db).await });
+    let demo_workspaces = state.demo_workspaces.clone();
+    tokio::spawn(async move { cleanup_expired(&db, &demo_workspaces).await });
     let port: u16 = port_value.parse().unwrap_or(8080);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
@@ -908,20 +1005,25 @@ mod unit_tests {
     };
     use tower::ServiceExt;
 
-    async fn test_app() -> Router {
+    async fn test_state() -> AppState {
         let db = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
             .unwrap();
         sqlx::migrate!().run(&db).await.unwrap();
+        AppState {
+            db,
+            channels: Default::default(),
+            cue_lock: Default::default(),
+            demo_workspaces: Default::default(),
+            public_url: DEFAULT_PUBLIC_URL.into(),
+        }
+    }
+
+    async fn test_app() -> Router {
         app(
-            AppState {
-                db,
-                channels: Default::default(),
-                cue_lock: Default::default(),
-                public_url: DEFAULT_PUBLIC_URL.into(),
-            },
+            test_state().await,
             PathBuf::from("/tmp/scene-cues-missing-static"),
         )
     }
@@ -988,6 +1090,77 @@ mod unit_tests {
         assert!(!health["build_sha"].as_str().unwrap_or_default().is_empty());
     }
 
+    // @claim:demo-sandbox
+    #[tokio::test]
+    async fn demo_workspace_is_ephemeral_and_never_creates_a_real_room() {
+        let state = test_state().await;
+        let db = state.db.clone();
+        let router = app(state, PathBuf::from("/tmp/scene-cues-missing-static"));
+        let created = router
+            .clone()
+            .oneshot(request("POST", "/api/demo/workspaces", None))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+        assert_eq!(
+            created.headers().get("cache-control").unwrap(),
+            "private, no-store"
+        );
+        let workspace = json_body(created).await;
+        assert_eq!(workspace["title"], "The Lantern Room — tech rehearsal");
+        assert_eq!(workspace["cue_count"], 10);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM rooms")
+                .fetch_one(&db)
+                .await
+                .unwrap(),
+            0
+        );
+        let deleted = router
+            .oneshot(request(
+                "DELETE",
+                &format!("/api/demo/workspaces/{}", workspace["id"].as_str().unwrap()),
+                None,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
+    }
+
+    // @claim:room-expiry
+    #[tokio::test]
+    async fn expired_room_is_unavailable_even_with_a_valid_host_token() {
+        let state = test_state().await;
+        let db = state.db.clone();
+        sqlx::query("INSERT INTO rooms (id, code, title, host_token_hash, join_secret_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .bind("expired-room")
+            .bind("PAST12")
+            .bind("Expired rehearsal")
+            .bind(hash_token("host-token"))
+            .bind(hash_token("join-secret"))
+            .bind(Utc::now().to_rfc3339())
+            .bind((Utc::now() - Duration::seconds(1)).to_rfc3339())
+            .execute(&db)
+            .await
+            .unwrap();
+        let response = app(state, PathBuf::from("/tmp/scene-cues-missing-static"))
+            .oneshot(request("GET", "/api/rooms/PAST12?token=host-token", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::GONE);
+        assert_eq!(json_body(response).await["error"], "This room has expired");
+    }
+
+    // @claim:webhook-receipt
+    #[test]
+    fn webhook_signature_is_reproducible_from_the_delivered_body() {
+        let body = br#"{"type":"cue.fired","event":{"sequence":1}}"#;
+        assert_eq!(
+            webhook_signature("demo signing secret", body),
+            "sha256=9e9dd2718d12d24043e9bcd33bbb32e96ba5ae6aea13a94b658ecd81d3712d7c"
+        );
+    }
+
     #[tokio::test]
     async fn response_policy_does_not_advertise_an_unavailable_billing_origin() {
         let response = test_app()
@@ -1051,6 +1224,100 @@ mod unit_tests {
         assert_eq!(
             hashed_asset.headers().get("cache-control").unwrap(),
             "public, max-age=31536000, immutable"
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_routes_return_the_designed_http_404_page() {
+        let response = test_app()
+            .await
+            .oneshot(request("GET", "/missing-page", None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.headers().get("cache-control").unwrap(), "no-cache");
+        let body = String::from_utf8(
+            to_bytes(response.into_body(), 128 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(body.contains("This page is not available"));
+        assert!(body.contains("Return to Scene Cues"));
+    }
+
+    #[tokio::test]
+    async fn api_rate_limit_returns_retry_after_when_allowance_is_exhausted() {
+        let router = test_app().await;
+        let mut limited = None;
+        for _ in 0..45 {
+            let response = router
+                .clone()
+                .oneshot(request("GET", "/api/rooms/NONE00?token=none", None))
+                .await
+                .unwrap();
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                limited = Some(response);
+                break;
+            }
+        }
+        let response = limited.expect("the API should limit repeated requests");
+        assert!(response.headers().get("retry-after").is_some());
+    }
+
+    // @claim:ordered-go
+    #[tokio::test]
+    async fn approved_controller_gets_ten_once_only_ordered_receipts() {
+        let state = test_state().await;
+        let room_id = "ordered-room";
+        let code = "ORDER1";
+        let token = "approved-controller-token";
+        sqlx::query("INSERT INTO rooms (id, code, title, host_token_hash, join_secret_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .bind(room_id)
+            .bind(code)
+            .bind("Ordered rehearsal")
+            .bind(hash_token("host-token"))
+            .bind(hash_token("join-secret"))
+            .bind(Utc::now().to_rfc3339())
+            .bind((Utc::now() + Duration::hours(8)).to_rfc3339())
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO controllers (id, room_id, name, token_hash, status, created_at) VALUES (?, ?, ?, ?, 'approved', ?)")
+            .bind("ordered-controller")
+            .bind(room_id)
+            .bind("Booth phone")
+            .bind(hash_token(token))
+            .bind(Utc::now().to_rfc3339())
+            .execute(&state.db)
+            .await
+            .unwrap();
+        for position in 0..10 {
+            sqlx::query(
+                "INSERT INTO cues (id, room_id, position, scene, name) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(format!("ordered-cue-{position}"))
+            .bind(room_id)
+            .bind(position)
+            .bind("Act")
+            .bind(format!("Cue {position}"))
+            .execute(&state.db)
+            .await
+            .unwrap();
+        }
+        let mut sequences = Vec::new();
+        for _ in 0..10 {
+            let event = fire_at(code.into(), state.clone(), token.into(), None)
+                .await
+                .unwrap()
+                .0;
+            sequences.push(event.sequence);
+        }
+        assert_eq!(sequences, (1..=10).collect::<Vec<_>>());
+        let final_attempt = fire_at(code.into(), state, token.into(), None).await;
+        assert!(
+            matches!(final_attempt, Err(ApiError::BadRequest(message)) if message == "The cue list is already complete")
         );
     }
 
