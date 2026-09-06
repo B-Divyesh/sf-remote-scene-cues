@@ -1,3 +1,29 @@
+# Scene Cues verification handoff
+
+## Verification 4 — 2026-09-06
+
+Independent QA reviewed implementation `c4d17db` at the live product. The
+documentation checkout and live build identity are `aee5700`; its only change
+from the implementation is this handoff file. The live JS/CSS byte-match the
+candidate build.
+
+**Verdict: FAIL — 4 findings and 7 untested public claims.** The core two-device
+flow, one-click isolated sample, all 13 declared claim commands, 28 Playwright
+tests, local quality gates, live restart persistence, tenant isolation, rate
+limits, webhook delivery, security headers, Axe, and Lighthouse passed. The
+remaining findings are incomplete public claim coverage, claim tests outside
+the required demo path plus a duplicate tag, sub-44 px targets on demo/legal/
+404 routes, and an avoidable failed workspace request during offline demo
+reload.
+
+Full evidence and re-test instructions are in
+`.factory/verification-4.md`. No product code or deployment was changed by the
+verifier. The active product revision was restarted once to verify durable
+SQLite state; the room and its receipts survived. All deliberately created QA
+rooms and the disposable webhook receiver were deleted.
+
+---
+
 # Scene Cues repair handoff
 
 Completed 2026-09-06 for `remote-scene-cues-repair-3`.
