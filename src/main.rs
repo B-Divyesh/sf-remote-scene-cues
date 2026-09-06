@@ -1039,6 +1039,7 @@ mod unit_tests {
         body::{to_bytes, Body},
         http::Request,
     };
+    use sqlx::{Connection, SqliteConnection};
     use tower::ServiceExt;
 
     async fn test_state() -> AppState {
@@ -1124,6 +1125,39 @@ mod unit_tests {
         assert_eq!(health["status"], "ok");
         assert_ne!(health["build_sha"], "unknown");
         assert!(!health["build_sha"].as_str().unwrap_or_default().is_empty());
+    }
+
+    #[tokio::test]
+    async fn startup_migration_recovers_after_a_transient_sqlite_lock() {
+        let file = std::env::temp_dir().join(format!("scene-cues-migration-{}.db", Uuid::new_v4()));
+        let database_url = format!("sqlite://{}?mode=rwc", file.display());
+        let options = SqliteConnectOptions::from_str(&database_url)
+            .unwrap()
+            .create_if_missing(true)
+            .busy_timeout(StdDuration::from_millis(1));
+        let db = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&db).await.unwrap();
+
+        let mut lock = SqliteConnection::connect_with(&options).await.unwrap();
+        sqlx::query("BEGIN EXCLUSIVE")
+            .execute(&mut lock)
+            .await
+            .unwrap();
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(StdDuration::from_millis(40)).await;
+            sqlx::query("COMMIT").execute(&mut lock).await.unwrap();
+        });
+
+        let started = std::time::Instant::now();
+        run_migrations_with_retry(&db).await.unwrap();
+        assert!(started.elapsed() >= StdDuration::from_secs(1));
+        release.await.unwrap();
+        db.close().await;
+        let _ = std::fs::remove_file(file);
     }
 
     // @claim:demo-sandbox
