@@ -9,6 +9,7 @@ and interactive-theatre teams rehearsing scene changes. The first action is
 **Try it with sample data**, which opens a populated ten-cue rehearsal room.
 
 - Deployed implementation SHA: `c4d17db`.
+- Documentation evidence SHA: `1e0d59fcdd680a9e4297609a6f14f590ab3ffd46`.
 - Deployed image: `sf-remote-scene-cues@sha256:1e1e2dad013e4dc662b2e56395104ccce040f1cdcb7118c0f1847d03a4bbfff3`.
 - Live health: `https://remote-scene-cues.sociobot.in/health` returns build
   SHA `c4d17db`.
@@ -16,9 +17,8 @@ and interactive-theatre teams rehearsing scene changes. The first action is
 - Runtime storage: one replica (`minReplicas: 1`, `maxReplicas: 1`) with the
   `sf-remote-scene-cues-data` Azure File volume mounted at `/data`.
 
-The documentation/handoff commit is intentionally made after this deployed
-implementation and is not redeployed; see the final repository commit for its
-documentation SHA.
+The documentation evidence commit follows the deployed implementation and is
+not redeployed.
 
 ## What changed
 
